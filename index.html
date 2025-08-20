@@ -1,0 +1,506 @@
+<!DOCTYPE thml>
+<html>
+    <head></head>
+    <body>
+        Hello!
+        <canvas width="320" height="240"></canvas>
+        <script>
+            function* permutations(n) {
+                function* leftovers(used) {
+                    for (let i = 0; i < n; ++i) {
+                        if (!used[i]) {
+                            yield i;
+                        }
+                    }
+                }
+                const stack = [];
+                let tmp = leftovers(Array(n).fill(false));
+                stack.push({
+                    it: tmp,
+                    value: undefined
+                });
+
+                while (stack.length > 0) {
+                    const last = stack[stack.length - 1];
+                    last.value = last.it.next();
+                    if (last.value.done) {
+                        stack.pop();
+                        continue;
+                    }
+
+                    if (stack.length < n) {
+                        const used = Array(n).fill(false);
+                        stack.forEach(x => {
+                            const i = x.value.value;
+                            used[i] = true;
+                        });
+                        stack.push({
+                            it: leftovers(used),
+                            value: undefined
+                        });
+                        continue;
+                    }
+
+                    yield stack.map(x => x.value.value);
+                }
+            }
+            function countInversions(perm) {
+                let num = 0;
+                for (let i = 0; i < perm.length - 1; ++i) {
+                    for (let j = i + 1; j < perm.length; ++j) {
+                        if (perm[i] > perm[j]) {
+                            ++num;
+                        }
+                    }
+                }
+                return num;
+            }
+
+            function mat3(vals) {
+                const data = new Float32Array(9);
+                for (let i = 0; i < 9; ++i) {
+                    data[i] = vals[i];
+                }
+                return {
+                    data,
+                    print: () => {
+                        console.log(`${data[0]}\t${data[1]}\t${data[2]}`);
+                        console.log(`${data[3]}\t${data[4]}\t${data[5]}`);
+                        console.log(`${data[6]}\t${data[7]}\t${data[8]}`);
+                    },
+                    dim: 3,
+                    get: (r, c) => {
+                        const i = 3 * r + c;
+                        return data[i];
+                    },
+                    set: (r, c, v) => {
+                        const i = 3 * r + c;
+                        data[i] = v;
+                    }
+                };
+            }
+
+
+            function mat4(vals) {
+                const data = new Float32Array(16);
+                for (let i = 0; i < 16; ++i) {
+                    data[i] = vals[i];
+                }
+                return {
+                    data,
+                    print: () => {
+                        console.log(`${data[0]}\t${data[1]}\t${data[2]}\t${data[3]}`);
+                        console.log(`${data[4]}\t${data[5]}\t${data[6]}\t${data[7]}`);
+                        console.log(`${data[8]}\t${data[9]}\t${data[10]}\t${data[11]}`);
+                        console.log(`${data[12]}\t${data[13]}\t${data[14]}\t${data[15]}`);
+                    },
+                    dim: 4,
+                    get: (r, c) => {
+                        const i = 4 * r + c;
+                        return data[i];
+                    },
+                    set: (r, c, v) => {
+                        const i = 4 * r + c;
+                        data[i] = v;
+                    }
+                };
+            }
+
+            function inverse(mat) {
+                const matD = det(mat);
+                const res = mat4(new Array(16).fill(0));
+                for (let i = 0; i < mat.dim; ++i) {
+                    for (let j = 0; j < mat.dim; ++j) {
+                        const tmp = [];
+                        for (let k = 0; k < mat.dim; ++k) {
+                            for (let l = 0; l < mat.dim; ++l) {
+                                if (k === i || l === j) {
+                                    continue;
+                                }
+                                tmp.push(mat.get(k, l));
+                            }
+                        }
+                        const adj = mat3(tmp);
+                        let d = det(adj);
+                        if ((i + j) % 2 === 1) {
+                            d *= -1;
+                        }
+
+                        res.set(j, i, d) / matD;
+                    }
+                }
+                return res;
+            }
+
+            function transpose(mat) {
+                let res = mat4(new Float32Array(16).fill(0));
+                for (let i = 0; i < 4; ++i) {
+                    for (let j = 0; j < 4; ++j) {
+                        let val = mat.get(i, j);
+                        res.set(j, i, val);
+                    }
+                }
+                return res;
+            }
+
+            function multiply(m1, m2) {
+                let res = mat4(new Array(16).fill(0));
+                let dim = m1.dim;
+                for (let i = 0; i < dim; ++i) {
+                    for (let j = 0; j < dim; ++j) {
+                        let s = 0;
+                        for (let k = 0; k < dim; ++k) {
+                            s += m1.get(i, k) * m2.get(k, j);
+                        }
+                        res.set(i, j, s);
+                    }
+                }
+                return res;
+            }
+
+            function det(mat) {
+                let d = 0;
+                const perms = permutations(mat.dim);
+                let it = perms.next();
+                while (!it.done) {
+                    const p = it.value;
+                    const inv = countInversions(p);
+                    it = perms.next();
+
+                    let tmp = 1;
+                    for (let i = 0; i < p.length; ++i) {
+                        tmp *= mat.get(i, p[i]);
+                    }
+
+                    d += (inv % 2 === 0 ? 1 : -1) * tmp;
+                }
+                return d;
+            }
+
+            let camera = {
+                pos: [0, 0, -1],
+                fwd: [0, 0, 1],
+                near: 0.1,
+                far: 100,
+                fov: 30,
+                a: 800 / 600,
+                transform: mat4(new Array(16).fill(0)),
+                projection: mat4(new Array(16).fill(0)),
+                mvp: mat4(new Array(16).fill(0)),
+
+                update: () => {
+                    function cross(v1, v2) {
+                        return [
+                            v1[1] * v2[2] - v1[2] * v2[1],
+                            -v1[0] * v2[2] + v1[2] * v2[0],
+                            v1[0] * v2[1] - v1[1] * v2[0],
+                        ];
+                    }
+                    function normalize(v) {
+                        let magnitude = 0;
+                        for (let i = 0; i < v.length; ++i) {
+                            magnitude += v[i] * v[i];
+                        }
+                        magnitude = Math.sqrt(magnitude);
+                        for (let i = 0; i < v.length; ++i) {
+                            v[i] /= magnitude;
+                        }
+                    }
+
+                    normalize(camera.fwd);
+                    let up = [0, 1, 0];
+                    let right = cross(up, camera.fwd);
+                    normalize(right);
+                    up = cross(camera.fwd, right);
+                    normalize(up);
+
+                    camera.transform = mat4([
+                        right[0], up[0], camera.fwd[0], camera.pos[0],
+                        right[1], up[1], camera.fwd[1], camera.pos[1],
+                        right[2], up[2], camera.fwd[2], camera.pos[2],
+                               0,     0,             0,             1
+                    ]);
+
+                    const h = Math.tan(Math.PI * camera.fov / 180);
+                    const w = camera.a * h;
+                    camera.projection = mat4([
+                        1 / w, 0, 0, 0,
+                        0, 1 / h, 0, 0,
+
+                        0, 0,
+                        camera.far / (camera.far - camera.near),
+                        -camera.far * camera.near / (camera.far - camera.near),
+
+
+                        0, 0, 1, 0,
+                    ]);
+
+                    const inv = inverse(camera.transform);
+                    camera.mvp = multiply(
+                        camera.projection,
+                        inv
+                    );
+                },
+
+                debugProject: (p) => {
+                    const res = new Array(4).fill(0);
+                    for (let i = 0; i < 4; ++i) {
+                        for (let j = 0; j < 4; ++j) {
+                            res[i] += camera.mvp.get(i, j) * p[j];
+                        }
+                    }
+
+                    for (let i = 0; i < 4; ++i) {
+                        res[i] /= res[3];
+                    }
+
+                    return res;
+                },
+                debugChangeCoord: (p) => {
+                    const inv = inverse(camera.transform);
+                    const res = new Array(4).fill(0);
+                    for (let i = 0; i < 4; ++i) {
+                        for (let j = 0; j < 4; ++j) {
+                            res[i] += inv.get(i, j) * p[j];
+                        }
+                    }
+
+                    for (let i = 0; i < 4; ++i) {
+                        res[i] /= res[3];
+                    }
+
+                    return res;
+                },
+            };
+
+            const canvas = document.querySelector("canvas");
+            console.log(canvas);
+
+            async function initWebGPU() {
+                const adapter = await navigator.gpu?.requestAdapter({
+                    featureLevel: 'compatibility',
+                });
+                const device = await adapter.requestDevice();
+                const context = canvas.getContext('webgpu');
+
+                const devicePixelRatio = window.devicePixelRatio;
+                canvas.width = canvas.clientWidth * devicePixelRatio;
+                canvas.height = canvas.clientHeight * devicePixelRatio;
+                const presentationFormat = navigator.gpu.getPreferredCanvasFormat();
+
+                context.configure({
+                    device,
+                    format: presentationFormat,
+                });
+
+                console.log(context);
+
+                let vertexShader = fetch("assets/shaders/vertex.wgsl");
+                let fragmentShader = fetch("assets/shaders/fragment.wgsl")
+                await Promise.all([vertexShader, fragmentShader]);
+                vertexShader = await (await vertexShader).text();
+                fragmentShader = await (await fragmentShader).text();
+
+                console.log(vertexShader, fragmentShader);
+
+
+                let verts = new Float32Array(3 * 3);
+                verts[0] = -1;
+                verts[1] = -1;
+                verts[2] = 0;
+
+                verts[3] = 1;
+                verts[4] = -1;
+                verts[5] = 0;
+
+                verts[6] = 0;
+                verts[7] = 1;
+                verts[8] = 0;
+
+                let cameraBufferDST = device.createBuffer({
+                    label: "camera buffer dst",
+                    size: 16 * 4,
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                });
+
+                let cameraBufferSRC = device.createBuffer({
+                    label: "camera buffer src",
+                    size: 16 * 4,
+                    usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
+                });
+
+                const vertexBuffer = device.createBuffer({
+                    label: "vertex buffer",
+                    size: 4 * verts.length,
+                    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+                });
+                device.queue.writeBuffer(vertexBuffer, 0, verts);
+
+                const bindGroupLayout = device.createBindGroupLayout({
+                    entries: [
+                        {
+                            binding: 0, // camera uniforms
+                            visibility: GPUShaderStage.VERTEX,
+                            buffer: {
+                                type: "uniform"
+                            },
+                        }
+                    ]
+                });
+
+                const pipelineLayout = device.createPipelineLayout({
+                    bindGroupLayouts: [
+                        bindGroupLayout, // @group(0)
+                    ]
+                });
+
+                const bindGroup = device.createBindGroup({
+                    layout: bindGroupLayout,
+                    entries: [
+                        {
+                            binding: 0,
+                            resource: { buffer: cameraBufferDST },
+                        }
+                    ],
+                });
+
+
+                const pipeline = device.createRenderPipeline({
+                    label: "simple pipeline",
+                    layout: pipelineLayout,
+                    vertex: {
+                        module: device.createShaderModule({
+                            code: vertexShader,
+                        }),
+                        buffers: [
+                            {
+                                arrayStride: 3 * 4,
+                                attributes: [
+                                    {
+                                        shaderLocation: 0,
+                                        offset: 0,
+                                        format: "float32x3"
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    fragment: {
+                        module: device.createShaderModule({
+                            code: fragmentShader,
+                        }),
+                        targets: [
+                            {
+                                format: presentationFormat,
+                            },
+                        ],
+                    },
+                    primitive: {
+                        topology: 'triangle-list',
+                    },
+                });
+
+                async function updateCam() {
+                    camera.update();
+                    await cameraBufferSRC.mapAsync(GPUMapMode.WRITE);
+                    let mapped = cameraBufferSRC.getMappedRange();
+
+                    let camBufView = new Float32Array(mapped);
+                    let transp = transpose(camera.mvp);
+                    camBufView.set(transp.data);
+
+                    // for (let i = 0; i < 16; ++i) {
+                    //     camBufView.setFloat32(camera.mvp.data[i]);
+                    // }
+                    cameraBufferSRC.unmap();
+
+                    const commandEncoder = device.createCommandEncoder();
+                    commandEncoder.copyBufferToBuffer(
+                        cameraBufferSRC,
+                        0,
+                        cameraBufferDST,
+                        0,
+                        16 * 4
+                    );
+                    const finishedEncoder = commandEncoder.finish();
+                    device.queue.submit([finishedEncoder]);
+                    await device.queue.onSubmittedWorkDone();
+                }
+
+                // for (let i = 0; i < 100; ++i) {
+                while(true) {
+                    await updateCam();
+
+                    const textureView = context.getCurrentTexture().createView();
+                    const renderPassDescriptor = {
+                        colorAttachments: [
+                            {
+                                view: textureView,
+                                clearValue: [0, 0, 0, 0], // Clear to transparent
+                                loadOp: 'clear',
+                                storeOp: 'store',
+                            },
+                        ],
+                    };
+
+                    const commandEncoder = device.createCommandEncoder();
+                    const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+
+                    passEncoder.setVertexBuffer(0, vertexBuffer);
+
+                    passEncoder.setPipeline(pipeline);
+                    passEncoder.setBindGroup(0, bindGroup);
+
+                    passEncoder.draw(3);
+                    passEncoder.end();
+                    const finishedEncoder = commandEncoder.finish();
+
+                    let startFrame = Date.now();
+                    device.queue.submit([finishedEncoder]);
+                    let pr = device.queue.onSubmittedWorkDone();
+                    await pr;
+                    let now = Date.now();
+                    let diff = now - startFrame;
+
+                    // console.log("Work Done", diff);
+                }
+            }
+
+            initWebGPU();
+        </script>
+        <script src="source/assimpjs.js"></script>
+        <script>
+            async function init() {
+                const ajs = await assimpjs();
+                console.log(ajs);
+
+                const fbxName = "assets/Twilight_Character.FBX";
+
+                const fbx = await fetch(fbxName);
+                const buff = await fbx.arrayBuffer();
+
+                const fileList = new ajs.FileList();
+                console.log(fileList);
+                fileList.AddFile(fbxName, new Uint8Array(buff));
+
+                const result = ajs.ConvertFileList(fileList, "assjson");
+                if (!result.IsSuccess () || result.FileCount () == 0) {
+                        onLoad (result.GetErrorCode ());
+					return;
+				}
+
+                let resultFile = result.GetFile (0);
+                let jsonContent = new TextDecoder ().decode (resultFile.GetContent());
+
+                // parse the result json
+                let resultJson = JSON.parse(jsonContent);
+
+                console.log(resultJson);
+
+
+                console.log(res);
+            }
+            // init();
+        </script>
+    </body>
+</html>
