@@ -316,11 +316,45 @@
                             meshIndices = meshIndices.concat(x);
                         });
 
+                        const weightArr =
+                            new Array(meshVerts.length / 3);
+
+                        let bones = mesh.bones;
+                        if (!bones) {
+                            bones = [];
+                        }
+                        for (let i = 0; i < bones.length; ++i) {
+                            const cur = bones[i];
+                            cur.weights.forEach(w => {
+                                if (!weightArr[w[0]]) {
+                                    weightArr[w[0]] = {weights: []};
+                                }
+                                weightArr[w[0]].weights.push({
+                                    bone: i,
+                                    weight: w[1]
+                                });
+                            });
+                        }
+
                         const meshObj = {
                             verts: new Float32Array(meshVerts),
-                            indices: new Uint32Array(meshIndices)
+                            indices: new Uint32Array(meshIndices),
+                            bones: bones.map(x => {
+                                return {
+                                    name: x.name,
+                                    transform: mat4(x.offsetmatrix)
+                                }
+                            }),
+                            pose: bones.map(_ => {
+                                return mat4([
+                                    1, 0, 0, 0,  
+                                    0, 1, 0, 0,  
+                                    0, 0, 1, 0,  
+                                    0, 0, 0, 1,  
+                                ]);
+                            }),
+                            weights: weightArr,
                         };
-
                         character.meshes.push(meshObj);
                     });
 
@@ -349,6 +383,7 @@
                         let curNode = characterFBX.rootnode;
                         helper(curNode, unit);
                     }
+                    character.updateInitialTransforms = updateInitialTransforms;
 
                     updateInitialTransforms();
                 }
@@ -392,6 +427,12 @@
                     usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
                 });
 
+                const dummyBuffer = device.createBuffer({
+                    label: "dummy buffer",
+                    size: 4,
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.VERTEX,
+                });
+
                 const bindGroupLayout = device.createBindGroupLayout({
                     entries: [
                         {
@@ -407,7 +448,14 @@
                             buffer: {
                                 type: "uniform"
                             },
-                        }
+                        },
+                        {
+                            binding: 2, // pose uniforms
+                            visibility: GPUShaderStage.VERTEX,
+                            buffer: {
+                                type: "uniform"
+                            },
+                        },
                     ]
                 });
 
@@ -473,7 +521,81 @@
                             device.queue.submit([finishedEncoder]);
                         });
 
+                        let weightsBuff = dummyBuffer;
+                        let poseBuff = dummyBuffer;
+
+                        if (mesh.bones.length > 0) {
+                            {
+                                const wSize = 64 * mesh.weights.length;
+                                weightsBuff = device.createBuffer({
+                                    label: `weights buffer ${meshIndex}`,
+                                    size: wSize,
+                                    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+                                });
+                                const tmp = new ArrayBuffer(wSize);
+                                const intView = new Int32Array(tmp);
+                                const floatView = new Float32Array(tmp);
+                                let index = 0;
+                                for (let i = 0; i < mesh.weights.length; ++i) {
+                                    let cur = mesh.weights[i].weights;
+
+                                    for (let j = 0; j < 8; ++j) {
+                                        intView[index + j] = -1;
+                                        floatView[index + 8 + j] = 1;
+                                    }
+
+                                    for (let j = 0; j < cur.length; ++j) {
+                                        intView[index + j] = cur[j].bone;
+                                        floatView[index + 8 + j] = cur[j].weight;
+                                    }
+                                    index += 16;
+                                }
+                                device.queue.writeBuffer(weightsBuff, 0, tmp);
+                            }
+                            {
+                                let poseBufferDST = device.createBuffer({
+                                    label: `pose buffer dst ${meshIndex}`,
+                                    size: 16 * 4 * mesh.pose.length,
+                                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                                });
+
+                                poseBuff = poseBufferDST;
+
+                                let poseBufferSRC = device.createBuffer({
+                                    label: `pose buffer src ${meshIndex}`,
+                                    size: 16 * 4 * mesh.pose.length,
+                                    usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
+                                });
+
+                                tickUpdates.push(async () => {
+                                    await poseBufferSRC.mapAsync(GPUMapMode.WRITE);
+                                    let mapped = poseBufferSRC.getMappedRange();
+
+                                    let bufView = new Float32Array(mapped);
+                                    for (let i = 0; i < mesh.pose.length; ++i) {
+                                        let cur = mesh.pose[i];
+                                        let transp =
+                                            transpose(cur);
+                                        bufView.set(transp.data, i * 16);
+                                    }
+
+                                    poseBufferSRC.unmap();
+                                    const commandEncoder = device.createCommandEncoder();
+                                    commandEncoder.copyBufferToBuffer(
+                                        poseBufferSRC,
+                                        0,
+                                        poseBufferDST,
+                                        0,
+                                        16 * 4 * mesh.pose.length
+                                    );
+                                    const finishedEncoder = commandEncoder.finish();
+                                    device.queue.submit([finishedEncoder]);
+                                });
+                            }
+                        }
+
                         const bindGroup = device.createBindGroup({
+                            label: `bind group ${meshIndex}`,
                             layout: bindGroupLayout,
                             entries: [
                                 {
@@ -483,11 +605,16 @@
                                 {
                                     binding: 1,
                                     resource: { buffer: transformBufferDST },
-                                }
+                                },
+                                {
+                                    binding: 2,
+                                    resource: { buffer: poseBuff },
+                                },
                             ],
                         });
                         character.renderElements.push({
                             vertexBuffer,
+                            weightsBuff,
                             indexBuffer,
                             indices: indices.length,
                             bindGroup
@@ -517,6 +644,31 @@
                                         offset: 0,
                                         format: "float32x3"
                                     }
+                                ]
+                            },
+                            {
+                                arrayStride: 2 * 8 * 4,
+                                attributes: [
+                                    {
+                                        shaderLocation: 10,
+                                        offset: 0,
+                                        format: "uint32x4"
+                                    },
+                                    {
+                                        shaderLocation: 11,
+                                        offset: 16,
+                                        format: "uint32x4"
+                                    },
+                                    {
+                                        shaderLocation: 12,
+                                        offset: 32,
+                                        format: "float32x4"
+                                    },
+                                    {
+                                        shaderLocation: 13,
+                                        offset: 48,
+                                        format: "float32x4"
+                                    },
                                 ]
                             }
                         ]
@@ -565,6 +717,7 @@
 
                 // for (let i = 0; i < 100; ++i) {
                 while(true) {
+                    character.updateInitialTransforms();
                     await Promise.all(tickUpdates.map(x => x()));
                     await device.queue.onSubmittedWorkDone();
 
@@ -585,6 +738,7 @@
                     character.renderElements.forEach(re => {
 
                         passEncoder.setVertexBuffer(0, re.vertexBuffer);
+                        passEncoder.setVertexBuffer(1, re.weightsBuff);
                         passEncoder.setIndexBuffer(re.indexBuffer, "uint32");
 
                         passEncoder.setPipeline(pipeline);
