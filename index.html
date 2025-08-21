@@ -301,6 +301,7 @@
             const canvas = document.querySelector("canvas");
             console.log(canvas);
 
+            const maxBones = 50;
             async function initWebGPU() {
                 const characterFBX = await loadCharacter();
                 console.log(characterFBX);
@@ -429,7 +430,7 @@
 
                 const dummyBuffer = device.createBuffer({
                     label: "dummy buffer",
-                    size: 512,
+                    size: 16 * 4 * maxBones,
                     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
                 });
                 {
@@ -569,7 +570,7 @@
                             {
                                 let poseBufferDST = device.createBuffer({
                                     label: `pose buffer dst ${meshIndex}`,
-                                    size: 16 * 4 * mesh.pose.length,
+                                    size: 16 * 4 * maxBones,
                                     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
                                 });
 
@@ -577,7 +578,7 @@
 
                                 let poseBufferSRC = device.createBuffer({
                                     label: `pose buffer src ${meshIndex}`,
-                                    size: 16 * 4 * mesh.pose.length,
+                                    size: 16 * 4 * maxBones,
                                     usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
                                 });
 
@@ -590,7 +591,9 @@
                                         let cur = mesh.pose[i];
                                         let transp =
                                             transpose(cur);
-                                        bufView.set(transp.data, i * 16);
+                                        for (let j = 0; j < 16; ++j) {
+                                            bufView[i * 16 + j] = transp.data[j];
+                                        }
                                     }
 
                                     poseBufferSRC.unmap();
@@ -600,7 +603,7 @@
                                         0,
                                         poseBufferDST,
                                         0,
-                                        16 * 4 * mesh.pose.length
+                                        16 * 4 * maxBones
                                     );
                                     const finishedEncoder = commandEncoder.finish();
                                     device.queue.submit([finishedEncoder]);
