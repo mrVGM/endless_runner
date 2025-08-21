@@ -2,8 +2,33 @@
 <html>
     <head></head>
     <body>
-        Hello!
         <canvas width="320" height="240"></canvas>
+        <script src="source/assimpjs.js"></script>
+        <script>
+            async function loadCharacter() {
+                const ajs = await assimpjs();
+                const fbxName = "assets/Twilight_Character.FBX";
+
+                const fbx = await fetch(fbxName);
+                const buff = await fbx.arrayBuffer();
+
+                const fileList = new ajs.FileList();
+                fileList.AddFile(fbxName, new Uint8Array(buff));
+
+                const result = ajs.ConvertFileList(fileList, "assjson");
+                if (!result.IsSuccess () || result.FileCount () == 0) {
+                        onLoad (result.GetErrorCode ());
+					return;
+				}
+
+                let resultFile = result.GetFile (0);
+                let jsonContent = new TextDecoder ().decode (resultFile.GetContent());
+
+                // parse the result json
+                let resultJson = JSON.parse(jsonContent);
+                return resultJson;
+            }
+        </script>
         <script>
             function* permutations(n) {
                 function* leftovers(used) {
@@ -277,6 +302,30 @@
             console.log(canvas);
 
             async function initWebGPU() {
+                const characterFBX = await loadCharacter();
+                console.log(characterFBX);
+
+                const character = {
+                    meshes: []
+                };
+                {
+                    characterFBX.meshes.forEach(mesh => {
+                        const meshVerts = mesh.vertices;
+                        let meshIndices = [];
+                        mesh.faces.forEach(x => {
+                            meshIndices = meshIndices.concat(x);
+                        });
+
+                        const meshObj = {
+                            verts: new Float32Array(meshVerts),
+                            indices: new Uint32Array(meshIndices)
+                        };
+
+                        character.meshes.push(meshObj);
+                    });
+                }
+                console.log(character);
+
                 const adapter = await navigator.gpu?.requestAdapter({
                     featureLevel: 'compatibility',
                 });
@@ -303,20 +352,6 @@
 
                 console.log(vertexShader, fragmentShader);
 
-
-                let verts = new Float32Array(3 * 3);
-                verts[0] = -1;
-                verts[1] = -1;
-                verts[2] = 0;
-
-                verts[3] = 1;
-                verts[4] = -1;
-                verts[5] = 0;
-
-                verts[6] = 0;
-                verts[7] = 1;
-                verts[8] = 0;
-
                 let cameraBufferDST = device.createBuffer({
                     label: "camera buffer dst",
                     size: 16 * 4,
@@ -329,24 +364,35 @@
                     usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
                 });
 
-                const vertexBuffer = device.createBuffer({
-                    label: "vertex buffer",
-                    size: 4 * verts.length,
-                    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-                });
-                device.queue.writeBuffer(vertexBuffer, 0, verts);
-
-                const indices = new Uint32Array([0, 1, 2]);
-                const indexBuffer = device.createBuffer({
-                    label: "index buffer",
-                    size: 4 * indices.length,
-                    usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-                });
-                device.queue.writeBuffer(indexBuffer, 0, indices);
                 {
-                    let pr = device.queue.onSubmittedWorkDone();
-                    await pr;
+                    let meshIndex = 0;
+                    character.meshes.forEach(mesh => {
+                        const verts = mesh.verts;
+                        const indices = mesh.indices;
+
+                        const vertexBuffer = device.createBuffer({
+                            label: `vertex buffer ${meshIndex}`,
+                            size: 4 * verts.length,
+                            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+                        });
+                        device.queue.writeBuffer(vertexBuffer, 0, verts);
+
+                        const indexBuffer = device.createBuffer({
+                            label: `index buffer ${meshIndex}`,
+                            size: 4 * indices.length,
+                            usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+                        });
+                        device.queue.writeBuffer(indexBuffer, 0, indices);
+
+                        mesh.vertexBuffer = vertexBuffer;
+                        mesh.indexBuffer = indexBuffer;
+
+                        ++meshIndex;
+                    });
+
+                    await device.queue.onSubmittedWorkDone();
                 }
+
                 console.log("vertex/index buffer ready");
 
                 const bindGroupLayout = device.createBindGroupLayout({
@@ -458,14 +504,16 @@
 
                     const commandEncoder = device.createCommandEncoder();
                     const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+                    character.meshes.forEach(mesh => {
 
-                    passEncoder.setVertexBuffer(0, vertexBuffer);
-                    passEncoder.setIndexBuffer(indexBuffer, "uint32");
+                        passEncoder.setVertexBuffer(0, mesh.vertexBuffer);
+                        passEncoder.setIndexBuffer(mesh.indexBuffer, "uint32");
 
-                    passEncoder.setPipeline(pipeline);
-                    passEncoder.setBindGroup(0, bindGroup);
+                        passEncoder.setPipeline(pipeline);
+                        passEncoder.setBindGroup(0, bindGroup);
 
-                    passEncoder.drawIndexed(3);
+                        passEncoder.drawIndexed(mesh.indices.length);
+                    });
                     passEncoder.end();
                     const finishedEncoder = commandEncoder.finish();
 
@@ -480,38 +528,7 @@
 
             initWebGPU();
         </script>
-        <script src="source/assimpjs.js"></script>
         <script>
-            async function init() {
-                const ajs = await assimpjs();
-                console.log(ajs);
-
-                const fbxName = "assets/Twilight_Character.FBX";
-
-                const fbx = await fetch(fbxName);
-                const buff = await fbx.arrayBuffer();
-
-                const fileList = new ajs.FileList();
-                console.log(fileList);
-                fileList.AddFile(fbxName, new Uint8Array(buff));
-
-                const result = ajs.ConvertFileList(fileList, "assjson");
-                if (!result.IsSuccess () || result.FileCount () == 0) {
-                        onLoad (result.GetErrorCode ());
-					return;
-				}
-
-                let resultFile = result.GetFile (0);
-                let jsonContent = new TextDecoder ().decode (resultFile.GetContent());
-
-                // parse the result json
-                let resultJson = JSON.parse(jsonContent);
-
-                console.log(resultJson);
-
-
-                console.log(res);
-            }
             // init();
         </script>
     </body>
