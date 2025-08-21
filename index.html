@@ -429,9 +429,16 @@
 
                 const dummyBuffer = device.createBuffer({
                     label: "dummy buffer",
-                    size: 4,
-                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.VERTEX,
+                    size: 512,
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
                 });
+                {
+                    let tmp = new Uint8Array(512);
+                    tmp[0] = 0;
+                    tmp[256] = 1;
+                    device.queue.writeBuffer(dummyBuffer, 0, tmp);
+                    await device.queue.onSubmittedWorkDone();
+                }
 
                 const bindGroupLayout = device.createBindGroupLayout({
                     entries: [
@@ -450,7 +457,14 @@
                             },
                         },
                         {
-                            binding: 2, // pose uniforms
+                            binding: 2, // is skeletal
+                            visibility: GPUShaderStage.VERTEX,
+                            buffer: {
+                                type: "uniform"
+                            },
+                        },
+                        {
+                            binding: 3, // pose uniforms
                             visibility: GPUShaderStage.VERTEX,
                             buffer: {
                                 type: "uniform"
@@ -608,6 +622,13 @@
                                 },
                                 {
                                     binding: 2,
+                                    resource: { 
+                                        buffer: dummyBuffer,
+                                        offset: (mesh.bones.length > 0) ? 256 : 0,
+                                    },
+                                },
+                                {
+                                    binding: 3,
                                     resource: { buffer: poseBuff },
                                 },
                             ],
