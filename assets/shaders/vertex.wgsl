@@ -1,4 +1,5 @@
 @group(0) @binding(0) var<uniform> camera : mat4x4<f32>;
+@group(0) @binding(1) var<uniform> object_transf : mat4x4<f32>;
 
 @vertex
 fn main(
@@ -10,7 +11,7 @@ fn main(
 //     vec2(0.5, -0.5)
 //   );
 
-  let res: vec4f = camera * vec4f(pos, 1.0);
+  let res: vec4f = camera * object_transf * vec4f(pos, 1.0);
   
   return res;
 }
