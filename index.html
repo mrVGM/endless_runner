@@ -210,6 +210,13 @@
                 }
                 return res;
             }
+            function cross(v1, v2) {
+                return [
+                    v1[1] * v2[2] - v1[2] * v2[1],
+                    -v1[0] * v2[2] + v1[2] * v2[0],
+                    v1[0] * v2[1] - v1[1] * v2[0],
+                ];
+            }
 
             function transformVector(m, v) {
                 let res = new Array(4).fill(0);
@@ -237,6 +244,183 @@
                        0,    0,    0, 1,
                 ]);
             }
+            
+            function mToQ(m) {
+                let origin = [0, 0, 0, 1];
+                let x = [1, 0, 0, 1];
+                let y = [0, 1, 0, 1];
+                let z = [0, 0, 1, 1];
+
+                let oTr = transformVector(m, origin);
+                let xTr = transformVector(m, x);
+                let yTr = transformVector(m, y);
+                let zTr = transformVector(m, z);
+
+                [oTr, xTr, yTr, zTr].forEach(x => {
+                    x.pop();
+                });
+
+                [xTr, yTr, zTr].forEach(x => {
+                    for (let i = 0; i < x.length; ++i) {
+                        x[i] -= oTr[i];
+                    }
+                });
+
+                let offset = oTr;
+
+                let scale = [
+                    Math.sqrt(dot(xTr, xTr)),
+                    Math.sqrt(dot(yTr, yTr)),
+                    Math.sqrt(dot(zTr, zTr)),
+                ];
+
+                let orientation = dot(cross(xTr, yTr), zTr);
+                if (orientation < 0) {
+                    scale[0] *= -1;
+                }
+
+                xTr = xTr.map(c => c / scale[0]);
+                yTr = yTr.map(c => c / scale[1]);
+                zTr = zTr.map(c => c / scale[2]);
+
+                let pairs = [
+                    {
+                        v1: x.filter((a, i) => i < 3),
+                        v2: xTr
+                    },
+                    {
+                        v1: y.filter((a, i) => i < 3),
+                        v2: yTr
+                    },
+                    {
+                        v1: z.filter((a, i) => i < 3),
+                        v2: zTr
+                    },
+                ];
+
+                function getQ() {
+                    let best;
+                    {
+                        let spread = pairs.map(x => {
+                            let d = dot(x.v1, x.v2);
+                            return Math.abs(d);
+                        });
+
+                        let min = 0;
+                        for (let i = 0; i < spread.length; ++i) {
+                            if (spread[i] < spread[min]) {
+                                min = i;
+                            }
+                        }
+
+                        best = {
+                            pair: pairs[min],
+                            val: spread[min]
+                        };
+                    }
+
+                    if (best.val > 0.99999) {
+                        return [1, 0, 0, 0];
+                    }
+                    best = best.pair;
+                    {
+                        let axis = cross(best.v1, best.v2);
+                        let l = dot(axis, axis);
+                        l = Math.sqrt(l);
+                        axis = axis.map(x => x / l);
+
+                        let angle = -Math.asin(l) / 2;
+                        let rot = [
+                            Math.cos(angle),
+                            -Math.sin(angle) * axis[0],
+                            -Math.sin(angle) * axis[1],
+                            -Math.sin(angle) * axis[2],
+                        ];
+
+                        return rot;
+                    }
+                }
+
+                let rotation = getQ();
+
+                return {
+                    offset,
+                    rotation,
+                    scale,
+                }
+            }
+
+            function lerp(m1, m2, alpha) {
+                let tr1 = mToQ(m1);
+                let tr2 = mToQ(m2);
+
+                let offset = [0,0,0];
+                let scale = [0,0,0];
+                for (let i = 0; i < 3; ++i) {
+                    offset[i] =
+                        (1 - alpha) * tr1.offset[i]
+                        + alpha * tr2.offset[i]; 
+                    scale[i] =
+                        (1 - alpha) * tr1.scale[i]
+                        + alpha * tr2.scale[i]; 
+                }
+
+                let x = qMult(tr2.rotation, qConj(tr1.rotation));
+                let x1 = x[0];
+                x1 = Math.max(-1, x1);
+                x1 = Math.min(1, x1);
+
+                function getRot() {
+                    let angle = Math.acos(x[0]);
+                    if (angle < 0.00000001) {
+                        return [1, 0, 0, 0];
+                    }
+
+                    if (angle > Math.PI / 2) {
+                        angle = angle - Math.PI;
+                    }
+                    let axis = x.filter((_, i) => i > 0);
+                    axis = axis.map(x => -x / Math.sin(angle));
+
+                    angle *= alpha;
+                    let rot = [
+                        Math.cos(angle),
+                        -Math.sin(angle) * axis[0],
+                        -Math.sin(angle) * axis[1],
+                        -Math.sin(angle) * axis[2],
+                    ];
+                    return qMult(rot, tr1.rotation);
+                }
+
+                let rot = getRot();
+
+                let mSc = mat4([
+                    scale[0],        0,        0, 0,
+                           0, scale[1],        0, 0,
+                           0,        0, scale[2], 0,
+                           0,        0,        0, 1, 
+                ]);
+
+                let mTr = mat4([
+                    1, 0, 0, offset[0], 
+                    0, 1, 0, offset[1], 
+                    0, 0, 1, offset[2], 
+                    0, 0, 0, 1, 
+                ]);
+
+                let xTr = qRot(rot, [1,0,0]);
+                let yTr = qRot(rot, [0,1,0]);
+                let zTr = qRot(rot, [0,0,1]);
+
+                let mRot = mat4([
+                    xTr[0],  yTr[0],  zTr[0],  0,
+                    xTr[1],  yTr[1],  zTr[1],  0,
+                    xTr[2],  yTr[2],  zTr[2],  0,
+                         0,       0,       0,  1,
+                ]);
+
+                return multiply(mTr, multiply(mRot, mSc));
+            }
 
             let camera = {
                 pos: [0, 0, -400],
@@ -250,13 +434,6 @@
                 mvp: mat4(new Array(16).fill(0)),
 
                 update: () => {
-                    function cross(v1, v2) {
-                        return [
-                            v1[1] * v2[2] - v1[2] * v2[1],
-                            -v1[0] * v2[2] + v1[2] * v2[0],
-                            v1[0] * v2[1] - v1[1] * v2[0],
-                        ];
-                    }
                     function normalize(v) {
                         let magnitude = 0;
                         for (let i = 0; i < v.length; ++i) {
@@ -508,8 +685,31 @@
                         traverse(characterFBX.rootnode, undefined, unit);
                     }
 
-                    character.applyAnim = (anim, frame) => {
-                        let res = character.sample(anim, frame);
+                    character.applyAnim = (anim, frame1, frame2, alpha) => {
+                        function getMatrices() {
+                            let eps = 0.00000001;
+                            if (alpha < eps) {
+                                return character.sample(anim, frame1);
+                            }
+                            if (alpha > 1 - eps) {
+                                return character.sample(anim, frame2);
+                            }
+
+                            let mats1 = character.sample(anim, frame1);
+                            let mats2 = character.sample(anim, frame2);
+
+                            let mats3 = {};
+
+                            for (let bone in mats1) {
+                                let m1 = mats1[bone];
+                                let m2 = mats2[bone];
+
+                                mats3[bone] = lerp(m1, m2, alpha);
+                            }
+
+                            return mats3;
+                        }
+                        let res = getMatrices();
 
                         character.meshes.forEach(mesh => {
                             mesh.bones.forEach((bone, i) => {
@@ -900,8 +1100,23 @@
                 }
                 tickUpdates.push(updateCam);
 
+                let startTime = Date.now();
+                function sampleAnim() {
+                    let elapsed = now = Date.now();
+                    let diff = elapsed - startTime;
+
+                    let elapsedSecs = 0.2 * diff / 1000;
+                    let anim = character.animations[0];
+                    let ticks = elapsedSecs * anim.tickspersecond;
+                    let left = Math.floor(ticks) % anim.duration;
+                    let right = Math.ceil(ticks) % anim.duration;
+                    let alpha = ticks - Math.floor(ticks);
+                    character.applyAnim(anim, left, right, alpha);
+                }
+                
                 // for (let i = 0; i < 100; ++i) {
                 while(true) {
+                    sampleAnim();
                     character.updateInitialTransforms();
                     await Promise.all(tickUpdates.map(x => x()));
                     await device.queue.onSubmittedWorkDone();
