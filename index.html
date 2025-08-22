@@ -395,6 +395,7 @@
                 };
 
                 ch = character;
+                let boneSet = {};
                 {
                     characterFBX.meshes.forEach(mesh => {
                         const meshVerts = mesh.vertices;
@@ -446,16 +447,74 @@
 
                         bones.forEach((x, i) => {
                             meshObj.boneMap[x.name] = i;
+                            boneSet[x.name] = true;
                         });
                         character.meshes.push(meshObj);
                     });
 
+                    character.skeleton = {};
+                    {
+                        function traverse(node, parentName, parentTr) {
+                            let curTr = multiply(parentTr, mat4(node.transformation));
+                            if (boneSet[node.name]) {
+                                character.skeleton[node.name] = {
+                                    parent: parentName,
+                                    defaultTr: curTr,
+                                }
+                                parentName = node.name;
+                            }
+
+                            if (!node.children) {
+                                return
+                            }
+
+                            for (let i = 0; i < node.children.length; ++i) {
+                                traverse(node.children[i], parentName, curTr);
+                            }
+                        }
+                        let unit = mat4([
+                            1, 0, 0, 0, 
+                            0, 1, 0, 0, 
+                            0, 0, 1, 0, 
+                            0, 0, 0, 1, 
+                        ]);
+                        traverse(characterFBX.rootnode, undefined, unit);
+                    }
+
                     character.applyAnim = (anim, frame) => {
                         let res = character.sample(anim, frame);
+
+                        let glob = {};
+                        {
+                            function calcGlobTr(bone) {
+                                if (glob[bone]) {
+                                    return;
+                                }
+
+                                let skBone = character.skeleton[bone];
+                                let localTr = res[bone] ? res[bone] : skBone.defaultTr;
+
+                                if (!skBone.parent) {
+                                    glob[bone] = localTr;
+                                    return;
+                                }
+                                
+                                calcGlobTr(skBone.parent);
+                                let parentTr = glob[skBone.parent];
+                                glob[bone] = multiply(parentTr, localTr);
+                            }
+
+                            for (let bone in res) {
+                                if (!glob[bone]) {
+                                    calcGlobTr(bone);
+                                }
+                            }
+                        }
+
                         character.meshes.forEach(mesh => {
                             mesh.bones.forEach((bone, i) => {
                                 const boneTr = bone.transform;
-                                const tr = multiply(res[bone.name], boneTr);
+                                const tr = multiply(glob[bone.name], boneTr);
                                 mesh.pose[i] = tr;
                             });
                         });
