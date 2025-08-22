@@ -367,7 +367,7 @@
                     meshes: [],
                     animations: characterFBX.animations,
                     sample: (animation, frame) => {
-                        const res = {};
+                        const locals = {};
                         animation.channels.forEach(channel => {
                             let pos = channel.positionkeys[frame][1];
                             let rot = channel.rotationkeys[frame][1];
@@ -388,9 +388,36 @@
                                 0, 0, 0, 1, 
                             ]);
 
-                            res[channel.name] = multiply(mTr, multiply(mR, mSc));
+                            locals[channel.name] = multiply(mTr, multiply(mR, mSc));
                         });
-                        return res;
+
+                        let glob = {};
+                        {
+                            function calcGlobTr(bone) {
+                                if (glob[bone]) {
+                                    return;
+                                }
+
+                                let skBone = character.skeleton[bone];
+                                let localTr = locals[bone] ? locals[bone] : skBone.defaultTr;
+
+                                if (!skBone.parent) {
+                                    glob[bone] = localTr;
+                                    return;
+                                }
+                                
+                                calcGlobTr(skBone.parent);
+                                let parentTr = glob[skBone.parent];
+                                glob[bone] = multiply(parentTr, localTr);
+                            }
+
+                            for (let bone in locals) {
+                                if (!glob[bone]) {
+                                    calcGlobTr(bone);
+                                }
+                            }
+                        }
+                        return glob;
                     },
                 };
 
@@ -431,7 +458,7 @@
                             bones: bones.map(x => {
                                 return {
                                     name: x.name,
-                                    transform: mat4(x.offsetmatrix)
+                                    offset: mat4(x.offsetmatrix)
                                 }
                             }),
                             pose: bones.map(_ => {
@@ -484,37 +511,10 @@
                     character.applyAnim = (anim, frame) => {
                         let res = character.sample(anim, frame);
 
-                        let glob = {};
-                        {
-                            function calcGlobTr(bone) {
-                                if (glob[bone]) {
-                                    return;
-                                }
-
-                                let skBone = character.skeleton[bone];
-                                let localTr = res[bone] ? res[bone] : skBone.defaultTr;
-
-                                if (!skBone.parent) {
-                                    glob[bone] = localTr;
-                                    return;
-                                }
-                                
-                                calcGlobTr(skBone.parent);
-                                let parentTr = glob[skBone.parent];
-                                glob[bone] = multiply(parentTr, localTr);
-                            }
-
-                            for (let bone in res) {
-                                if (!glob[bone]) {
-                                    calcGlobTr(bone);
-                                }
-                            }
-                        }
-
                         character.meshes.forEach(mesh => {
                             mesh.bones.forEach((bone, i) => {
-                                const boneTr = bone.transform;
-                                const tr = multiply(glob[bone.name], boneTr);
+                                const boneTr = bone.offset;
+                                const tr = multiply(res[bone.name], boneTr);
                                 mesh.pose[i] = tr;
                             });
                         });
