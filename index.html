@@ -5,6 +5,7 @@
         <canvas width="320" height="240"></canvas>
         <script src="source/assimpjs.js"></script>
         <script>
+            ch = undefined;
             async function loadCharacter() {
                 const ajs = await assimpjs();
                 const fbxName = "assets/slow_run.FBX";
@@ -367,6 +368,8 @@
                         return res;
                     },
                 };
+
+                ch = character;
                 {
                     characterFBX.meshes.forEach(mesh => {
                         const meshVerts = mesh.vertices;
