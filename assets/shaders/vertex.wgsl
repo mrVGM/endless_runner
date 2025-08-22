@@ -1,7 +1,7 @@
 @group(0) @binding(0) var<uniform> camera : mat4x4<f32>;
 @group(0) @binding(1) var<uniform> object_transf : mat4x4<f32>;
 
-const max_bones = 50;
+const max_bones = 100;
 struct Pose {
   pose: array<mat4x4<f32>, max_bones>
 };

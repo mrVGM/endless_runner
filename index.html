@@ -7,7 +7,7 @@
         <script>
             async function loadCharacter() {
                 const ajs = await assimpjs();
-                const fbxName = "assets/Twilight_Character.FBX";
+                const fbxName = "assets/slow_run.FBX";
 
                 const fbx = await fetch(fbxName);
                 const buff = await fbx.arrayBuffer();
@@ -203,10 +203,10 @@
             }
 
             let camera = {
-                pos: [0, 0, -1],
+                pos: [0, 0, -400],
                 fwd: [0, 0, 1],
                 near: 0.1,
-                far: 100,
+                far: 1000,
                 fov: 30,
                 a: 800 / 600,
                 transform: mat4(new Array(16).fill(0)),
@@ -298,16 +298,74 @@
                 },
             };
 
+            function qMult(q1, q2) {
+                return [
+                    q1[0] * q2[0] - q1[1] * q2[1] - q1[2] * q2[2] - q1[3] * q2[3],
+                    q1[0] * q2[1] + q1[1] * q2[0] + q1[2] * q2[3] - q1[3] * q2[2],
+                    q1[0] * q2[2] - q1[1] * q2[3] + q1[2] * q2[0] + q1[3] * q2[1],
+                    q1[0] * q2[3] + q1[1] * q2[2] - q1[2] * q2[1] + q1[3] * q2[0],
+                ];
+            }
+
+            function qConj(q) {
+                return [
+                    q[0], -q[1], -q[2], -q[3]
+                ];
+            }
+
+            function qRot(q, v) {
+                const qV = [0, v[0], v[1], v[2]];
+                let tmp = qMult(q, qMult(qV, qConj(q)));
+                return [tmp[1], tmp[2], tmp[3]];
+            }
+
             const canvas = document.querySelector("canvas");
             console.log(canvas);
 
-            const maxBones = 50;
+            const maxBones = 100;
             async function initWebGPU() {
                 const characterFBX = await loadCharacter();
                 console.log(characterFBX);
 
                 const character = {
-                    meshes: []
+                    meshes: [],
+                    animations: characterFBX.animations,
+                    sample: (animation, frame) => {
+                        const res = {};
+                        animation.channels.forEach(channel => {
+                            let pos = channel.positionkeys[frame][1];
+                            let rot = channel.rotationkeys[frame][1];
+                            let scale = channel.scalingkeys[frame][1];
+
+                            let x = qRot(rot, [1,0,0]);
+                            let y = qRot(rot, [0,1,0]);
+                            let z = qRot(rot, [0,0,1]);
+
+                            let mSc = mat4([
+                                scale[0],        0,        0, 0, 
+                                       0, scale[1],        0, 0, 
+                                       0,        0, scale[2], 0, 
+                                       0,        0,        0, 1, 
+                            ]);
+
+                            let mR = mat4([
+                                x[0], y[0], z[0], 0, 
+                                x[1], y[1], z[1], 0, 
+                                x[2], y[2], z[2], 0, 
+                                   0,    0,    0, 1, 
+                            ]);
+
+                            let mTr = mat4([
+                                1, 0, 0, pos[0], 
+                                0, 1, 0, pos[1], 
+                                0, 0, 1, pos[2], 
+                                0, 0, 0, 1, 
+                            ]);
+
+                            res = multiply(mTr, multiply(mR, mSc));
+                        });
+                        return res;
+                    },
                 };
                 {
                     characterFBX.meshes.forEach(mesh => {
@@ -340,6 +398,7 @@
                         const meshObj = {
                             verts: new Float32Array(meshVerts),
                             indices: new Uint32Array(meshIndices),
+                            boneMap: {},
                             bones: bones.map(x => {
                                 return {
                                     name: x.name,
@@ -356,8 +415,23 @@
                             }),
                             weights: weightArr,
                         };
+
+                        bones.forEach((x, i) => {
+                            meshObj.boneMap[x.name] = i;
+                        });
                         character.meshes.push(meshObj);
                     });
+
+                    character.applyAnim = (anim, frame) => {
+                        let res = character.sample(anim, frame);
+                        character.meshes.forEach(mesh => {
+                            mesh.bones.forEach((bone, i) => {
+                                const boneTr = bone.transform;
+                                const tr = multiply(res[bone.name], boneTr);
+                                mesh.pose[i] = tr;
+                            });
+                        });
+                    };
 
                     function updateInitialTransforms() {
                         function helper(node, parentTr) {
@@ -414,7 +488,7 @@
                 vertexShader = await (await vertexShader).text();
                 fragmentShader = await (await fragmentShader).text();
 
-                console.log(vertexShader, fragmentShader);
+                // console.log(vertexShader, fragmentShader);
 
                 let cameraBufferDST = device.createBuffer({
                     label: "camera buffer dst",
