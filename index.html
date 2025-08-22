@@ -203,6 +203,41 @@
                 return d;
             }
 
+            function dot(v1, v2) {
+                let res = 0;
+                for (let i = 0; i < v1.length; ++i) {
+                    res += v1[i] * v2[i];
+                }
+                return res;
+            }
+
+            function transformVector(m, v) {
+                let res = new Array(4).fill(0);
+                for (let i = 0; i < 4; ++i) {
+                    for (let j = 0; j < 4; ++j) {
+                        res[i] += m.get(i, j) * v[j];
+                    }
+                }
+                return res;
+            }
+
+            function qToMat(q) {
+                let x = [1,0,0];
+                let y = [0,1,0];
+                let z = [0,0,1];
+
+                let xR = qRot(q, x);
+                let yR = qRot(q, y);
+                let zR = qRot(q, z);
+
+                return mat4([
+                    xR[0], yR[0], zR[0], 0,
+                    xR[1], yR[1], zR[1], 0,
+                    xR[2], yR[2], zR[2], 0,
+                       0,    0,    0, 1,
+                ]);
+            }
+
             let camera = {
                 pos: [0, 0, -400],
                 fwd: [0, 0, 1],
@@ -338,10 +373,6 @@
                             let rot = channel.rotationkeys[frame][1];
                             let scale = channel.scalingkeys[frame][1];
 
-                            let x = qRot(rot, [1,0,0]);
-                            let y = qRot(rot, [0,1,0]);
-                            let z = qRot(rot, [0,0,1]);
-
                             let mSc = mat4([
                                 scale[0],        0,        0, 0, 
                                        0, scale[1],        0, 0, 
@@ -349,13 +380,7 @@
                                        0,        0,        0, 1, 
                             ]);
 
-                            let mR = mat4([
-                                x[0], y[0], z[0], 0, 
-                                x[1], y[1], z[1], 0, 
-                                x[2], y[2], z[2], 0, 
-                                   0,    0,    0, 1, 
-                            ]);
-
+                            let mR = qToMat(rot);
                             let mTr = mat4([
                                 1, 0, 0, pos[0], 
                                 0, 1, 0, pos[1], 
@@ -363,7 +388,7 @@
                                 0, 0, 0, 1, 
                             ]);
 
-                            res = multiply(mTr, multiply(mR, mSc));
+                            res[channel.name] = multiply(mTr, multiply(mR, mSc));
                         });
                         return res;
                     },
