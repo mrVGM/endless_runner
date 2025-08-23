@@ -31,6 +31,7 @@
             }
         </script>
         <script>
+            let eps = 0.000000000000001;
             function* permutations(n) {
                 function* leftovers(used) {
                     for (let i = 0; i < n; ++i) {
@@ -245,7 +246,8 @@
                 ]);
             }
             
-            function mToQ(m) {
+            let debugTestTrMat = mat4([0.20329336822032928,-0.9453483819961548,0.2549189031124115,19.527799606323242,-0.7366372346878052,0.023839956149458885,0.6758641004562378,77.35446166992188,-0.6450058221817017,-0.3251822888851166,-0.6915337443351746,23.625146865844727,0,0,0,1]);
+            function mToQt(m) {
                 let origin = [0, 0, 0, 1];
                 let x = [1, 0, 0, 1];
                 let y = [0, 1, 0, 1];
@@ -283,6 +285,196 @@
                 yTr = yTr.map(c => c / scale[1]);
                 zTr = zTr.map(c => c / scale[2]);
 
+                function realQ()
+                {
+                    let testMat = mat3([
+                        xTr[0] - 1,     yTr[0],     zTr[0],
+                            xTr[1], yTr[1] - 1,     zTr[1],
+                            xTr[2],     yTr[2], zTr[2] - 1,
+                    ]);
+
+                    let adjMat = mat3([
+                        0, 0, 0, 
+                        0, 0, 0, 
+                        0, 0, 0, 
+                    ]);
+                    for (let i = 0; i < 3; ++i) {
+                        for (let j = 0; j < 3; ++j) {
+                            let it = permutations(3);
+                            let d = 0;
+                            while (true) {
+                                let cur = it.next();
+                                if (cur.done) {
+                                    break;
+                                }
+
+                                let perm = cur.value;
+                                let parity = countInversions(perm) % 2 === 0 ? 1 : -1;
+
+
+                                let curProd = 1;
+                                for (let k = 0; k < 3; ++k) {
+                                    let getCoef = () => {
+                                        if (k === i) {
+                                            return perm[k] === j ? 1 : 0;
+                                        }
+                                        return testMat.get(k, perm[k]);
+                                    };
+                                    curProd *= getCoef();
+                                }
+                                d += parity * curProd;
+                            }
+
+                            adjMat.set(i, j, d);
+                        }
+                    }
+
+                    let score = (coord) => {
+                        let i = coord[0];
+                        let j = coord[1];
+                        return Math.abs(adjMat.get(i, j));
+                    }
+
+                    let best = [0, 0];
+                    for (let i = 0; i < 3; ++i) {
+                        for (let j = 0; j < 3; ++j) {
+                            let cur = [i, j];
+                            if (score(cur) > score(best)) {
+                                best = cur;
+                            }
+                        }
+                    }
+
+                    if (score(best) < eps) {
+                        return [1, 0, 0, 0];
+                    }
+
+                    {
+                        let i = best[0];
+                        let j = best[1];
+                        
+                        for (let k = 0; k < 3; ++k) {
+                            testMat.set(
+                                i,
+                                k,
+                                k === j ? 1 : 0
+                            );
+                        }
+                    }
+
+                    let embedTo4 = m => {
+                        let res = mat4([
+                            1, 0, 0, 0, 
+                            0, 1, 0, 0, 
+                            0, 0, 1, 0, 
+                            0, 0, 0, 1, 
+                        ]);
+
+                        for (let i = 0; i < 3; ++i) {
+                            for (let j = 0; j < 3; ++j) {
+                                res.set(i, j, m.get(i, j));
+                            }
+                        }
+
+                        return res;
+                    };
+
+                    let extranctFrom4 = m => {
+                        let res = mat3([
+                            1, 0, 0, 
+                            0, 1, 0, 
+                            0, 0, 1, 
+                        ]);
+
+                        for (let i = 0; i < 3; ++i) {
+                            for (let j = 0; j < 3; ++j) {
+                                res.set(i, j, m.get(i, j));
+                            }
+                        }
+
+                        return res;
+                    };
+
+                    {
+                        let best4 = embedTo4(testMat);
+                        best4 = inverse(best4);
+                        testMat = best4;
+                    }
+
+                    let rhs = [0,0,0,1];
+                    rhs[best[1]] = 1;
+
+                    let axis = transformVector(testMat, rhs);
+                    axis.pop();
+                    let l = Math.sqrt(dot(axis, axis));
+                    axis = axis.map(x => x / l);
+
+                    let ref;
+
+                    {
+                        let pairs = [
+                            {
+                                v1: x.filter((a, i) => i < 3),
+                                v2: xTr
+                            },
+                            {
+                                v1: y.filter((a, i) => i < 3),
+                                v2: yTr
+                            },
+                            {
+                                v1: z.filter((a, i) => i < 3),
+                                v2: zTr
+                            },
+                        ];
+
+                        let scorePair = (p) => {
+                            return Math.abs(dot(axis, p.v1));
+                        };
+                        let bestRef = pairs[0];
+                        pairs.forEach(p => {
+                            if (score(p) < score(bestRef)) {
+                                bestRef = p;
+                            }
+                        });
+
+                        ref = cross(axis, bestRef.v1);
+                        let refMagnitude = Math.sqrt(dot(ref, ref));
+                        ref = ref.map(x => x / refMagnitude);
+                    }
+
+                    let oTr = transformVector(m, origin);
+                    let refTr = transformVector(m, [ref[0], ref[1], ref[2], 1]);
+
+                    refTr = refTr.map((x, i) => x = x - oTr[i]);
+                    refTr.pop();
+
+                    let angle = Math.acos(dot(ref, refTr)) / 2;
+
+                    let q1 = [
+                        Math.cos(angle),
+                        -Math.sin(angle) * axis[0],
+                        -Math.sin(angle) * axis[1],
+                        -Math.sin(angle) * axis[2],
+                    ];
+                    let q2 = [
+                        Math.cos(angle),
+                        Math.sin(angle) * axis[0],
+                        Math.sin(angle) * axis[1],
+                        Math.sin(angle) * axis[2],
+                    ];
+
+                    let qs = [q1, q2].map(q => {
+                        let v = qRot(q, ref);
+                        let score = dot(v, refTr);
+                        return {
+                            q,
+                            score
+                        };
+                    });
+
+                    return qs[0].score > qs[1].score ? qs[0].q : qs[1].q;
+                }
+
                 let pairs = [
                     {
                         v1: x.filter((a, i) => i < 3),
@@ -298,50 +490,8 @@
                     },
                 ];
 
-                function getQ() {
-                    let best;
-                    {
-                        let spread = pairs.map(x => {
-                            let d = dot(x.v1, x.v2);
-                            return Math.abs(d);
-                        });
+                let rotation = realQ();
 
-                        let min = 0;
-                        for (let i = 0; i < spread.length; ++i) {
-                            if (spread[i] < spread[min]) {
-                                min = i;
-                            }
-                        }
-
-                        best = {
-                            pair: pairs[min],
-                            val: spread[min]
-                        };
-                    }
-
-                    if (best.val > 0.99999) {
-                        return [1, 0, 0, 0];
-                    }
-                    best = best.pair;
-                    {
-                        let axis = cross(best.v1, best.v2);
-                        let l = dot(axis, axis);
-                        l = Math.sqrt(l);
-                        axis = axis.map(x => x / l);
-
-                        let angle = -Math.asin(l) / 2;
-                        let rot = [
-                            Math.cos(angle),
-                            -Math.sin(angle) * axis[0],
-                            -Math.sin(angle) * axis[1],
-                            -Math.sin(angle) * axis[2],
-                        ];
-
-                        return rot;
-                    }
-                }
-
-                let rotation = getQ();
 
                 return {
                     offset,
@@ -350,9 +500,42 @@
                 }
             }
 
+            function qtToM(tr) {
+                let offset = tr.offset;
+                let scale = tr.scale;
+                let rot = tr.rotation;
+
+                let offsetM = mat4([
+                    1, 0, 0, offset[0], 
+                    0, 1, 0, offset[1], 
+                    0, 0, 1, offset[2], 
+                    0, 0, 0,         1, 
+                ]);
+
+                let scaleM = mat4([
+                    scale[0],        0,        0, 0, 
+                           0, scale[1],        0, 0, 
+                           0,        0, scale[2], 0, 
+                           0,        0,        0, 1, 
+                ]);
+
+                let xTr = qRot(rot, [1,0,0]);
+                let yTr = qRot(rot, [0,1,0]);
+                let zTr = qRot(rot, [0,0,1]);
+
+                let rotM = mat4([
+                    xTr[0], yTr[0], zTr[0], 0,
+                    xTr[1], yTr[1], zTr[1], 0,
+                    xTr[2], yTr[2], zTr[2], 0,
+                         0,      0,      0, 1,
+                ]);
+
+                return multiply(offsetM, multiply(rotM, scaleM));
+            }
+
             function lerp(m1, m2, alpha) {
-                let tr1 = mToQ(m1);
-                let tr2 = mToQ(m2);
+                let tr1 = mToQt(m1);
+                let tr2 = mToQt(m2);
 
                 let offset = [0,0,0];
                 let scale = [0,0,0];
@@ -371,8 +554,8 @@
                 x1 = Math.min(1, x1);
 
                 function getRot() {
-                    let angle = Math.acos(x[0]);
-                    if (angle < 0.00000001) {
+                    let angle = Math.acos(x1);
+                    if (angle < eps) {
                         return [1, 0, 0, 0];
                     }
 
@@ -687,7 +870,6 @@
 
                     character.applyAnim = (anim, frame1, frame2, alpha) => {
                         function getMatrices() {
-                            let eps = 0.00000001;
                             if (alpha < eps) {
                                 return character.sample(anim, frame1);
                             }
