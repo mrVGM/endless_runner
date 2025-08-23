@@ -1298,7 +1298,7 @@
                     let elapsed = now = Date.now();
                     let diff = elapsed - startTime;
 
-                    let elapsedSecs = 0.2 * diff / 1000;
+                    let elapsedSecs = diff / 1000;
                     let anim = character.animations[0];
                     let ticks = elapsedSecs * anim.tickspersecond;
                     let left = Math.floor(ticks) % anim.duration;
