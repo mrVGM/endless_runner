@@ -31,7 +31,7 @@
             }
         </script>
         <script>
-            let eps = 0.000000000000001;
+            let eps = 0.00000001;
             function* permutations(n) {
                 function* leftovers(used) {
                     for (let i = 0; i < n; ++i) {
@@ -452,18 +452,12 @@
 
                     let q1 = [
                         Math.cos(angle),
-                        -Math.sin(angle) * axis[0],
-                        -Math.sin(angle) * axis[1],
-                        -Math.sin(angle) * axis[2],
-                    ];
-                    let q2 = [
-                        Math.cos(angle),
                         Math.sin(angle) * axis[0],
                         Math.sin(angle) * axis[1],
                         Math.sin(angle) * axis[2],
                     ];
 
-                    let qs = [q1, q2].map(q => {
+                    let qs = [q1, qConj(q1)].map(q => {
                         let v = qRot(q, ref);
                         let score = dot(v, refTr);
                         return {
@@ -559,18 +553,35 @@
                         return [1, 0, 0, 0];
                     }
 
+                    let axis = x.filter((_, i) => i > 0);
+                    {
+                        let l = dot(axis, axis);
+                        l = Math.sqrt(l);
+                        axis = axis.map(x => x / l);
+                    }
+                    let v = Math.sin(angle);
+                    {
+                        let inv = axis.map((c, i) => {
+                            return v * c * x[i + 1]; 
+                        })
+                        .filter(x => x < 0)
+                        .length > 0;
+
+                        if (inv) {
+                            axis = axis.map(c => -1 * c);
+                        }
+                    }
+
                     if (angle > Math.PI / 2) {
                         angle = angle - Math.PI;
                     }
-                    let axis = x.filter((_, i) => i > 0);
-                    axis = axis.map(x => -x / Math.sin(angle));
 
                     angle *= alpha;
                     let rot = [
                         Math.cos(angle),
-                        -Math.sin(angle) * axis[0],
-                        -Math.sin(angle) * axis[1],
-                        -Math.sin(angle) * axis[2],
+                        Math.sin(angle) * axis[0],
+                        Math.sin(angle) * axis[1],
+                        Math.sin(angle) * axis[2],
                     ];
                     return qMult(rot, tr1.rotation);
                 }
