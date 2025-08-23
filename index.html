@@ -3,6 +3,7 @@
     <head></head>
     <body>
         <canvas width="320" height="240"></canvas>
+        <div id="dt"></div>
         <script src="source/assimpjs.js"></script>
         <script>
             ch = undefined;
@@ -1368,12 +1369,10 @@
                 }
                 tickUpdates.push(updateCam);
 
-                let startTime = Date.now();
-                function sampleAnim() {
-                    let elapsed = now = Date.now();
-                    let diff = elapsed - startTime;
-
-                    let elapsedSecs = diff / 1000;
+                let animProg = 0;
+                function sampleAnim(dt) {
+                    animProg += dt;
+                    let elapsedSecs = animProg / 1000;
                     let anim = character.animations[0];
                     let ticks = elapsedSecs * anim.tickspersecond;
                     let left = Math.floor(ticks) % anim.duration;
@@ -1381,9 +1380,12 @@
                     let alpha = ticks - Math.floor(ticks);
                     character.applyAnim(anim, left, right, alpha);
                 }
-                // for (let i = 0; i < 100; ++i) {
+
+                let fpsMon = document.querySelector("div#dt");
+                let diff = 0;
                 while(true) {
-                    sampleAnim();
+                    let startFrame = Date.now();
+                    sampleAnim(diff);
                     character.updateInitialTransforms();
                     await Promise.all(tickUpdates.map(x => x()));
                     await device.queue.onSubmittedWorkDone();
@@ -1422,12 +1424,12 @@
                     passEncoder.end();
                     const finishedEncoder = commandEncoder.finish();
 
-                    let startFrame = Date.now();
                     device.queue.submit([finishedEncoder]);
                     let pr = device.queue.onSubmittedWorkDone();
                     await pr;
                     let now = Date.now();
-                    let diff = now - startFrame;
+                    diff = now - startFrame;
+                    fpsMon.innerHTML = diff;
                 }
             }
 
