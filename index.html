@@ -1206,6 +1206,13 @@
 
                 console.log("vertex/index buffer ready");
 
+                const depthTexture = device.createTexture({
+                    label: "depth stencil",
+                    size: [canvas.width, canvas.height],
+                    format: "depth24plus",
+                    usage: GPUTextureUsage.RENDER_ATTACHMENT,
+                });
+
                 const pipeline = device.createRenderPipeline({
                     label: "simple pipeline",
                     layout: pipelineLayout,
@@ -1264,6 +1271,11 @@
                     primitive: {
                         topology: 'triangle-list',
                     },
+                    depthStencil: {
+                        depthWriteEnabled: true,
+                        depthCompare: "less",
+                        format: "depth24plus",
+                    },
                 });
 
                 async function updateCam() {
@@ -1306,7 +1318,6 @@
                     let alpha = ticks - Math.floor(ticks);
                     character.applyAnim(anim, left, right, alpha);
                 }
-                
                 // for (let i = 0; i < 100; ++i) {
                 while(true) {
                     sampleAnim();
@@ -1324,6 +1335,12 @@
                                 storeOp: 'store',
                             },
                         ],
+                        depthStencilAttachment: {
+                            view: depthTexture.createView(),
+                            depthClearValue: 1.0,
+                            depthLoadOp: "clear",
+                            depthStoreOp: "store",
+                        },
                     };
 
                     const commandEncoder = device.createCommandEncoder();
