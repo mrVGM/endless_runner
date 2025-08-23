@@ -796,14 +796,67 @@
                 let boneSet = {};
                 {
                     characterFBX.meshes.forEach(mesh => {
-                        const meshVerts = mesh.vertices;
+                        const meshVerts = [];
+                        {
+                            function* v() {
+                                for (let i = 0; i < mesh.vertices.length; ++i) {
+                                    yield mesh.vertices[i];
+                                }
+                            }
+                            function* n() {
+                                for (let i = 0; i < mesh.vertices.length; ++i) {
+                                    yield mesh.normals[i];
+                                }
+                            }
+                            function* t() {
+                                let texCoord = mesh.texturecoords[0];
+                                for (let i = 0; i < texCoord.length; ++i) {
+                                    yield texCoord[i];
+                                }
+                            }
+
+                            function* vIt() {
+                                let vi = v();
+                                let ni = n();
+                                let ti = t();
+
+                                while (true) {
+                                    for (let i = 0; i < 3; ++i) {
+                                        let v = vi.next();
+                                        if (v.done) {
+                                            return;
+                                        }
+
+                                        yield v.value;
+                                    }
+                                    for (let i = 0; i < 3; ++i) {
+                                        let n = ni.next();
+                                        yield n.value;
+                                    }
+                                    for (let i = 0; i < 2; ++i) {
+                                        let t = ti.next();
+                                        yield t.value;
+                                    }
+                                }
+                            }
+
+                            let it = vIt();
+                            while (true) {
+                                let cur = it.next();
+                                if (cur.done) {
+                                    break;
+                                }
+                                meshVerts.push(cur.value);
+                            }
+                        }
+
                         let meshIndices = [];
                         mesh.faces.forEach(x => {
                             meshIndices = meshIndices.concat(x);
                         });
 
                         const weightArr =
-                            new Array(meshVerts.length / 3);
+                            new Array(mesh.vertices.length / 3);
 
                         let bones = mesh.bones;
                         if (!bones) {
@@ -1222,13 +1275,23 @@
                         }),
                         buffers: [
                             {
-                                arrayStride: 3 * 4,
+                                arrayStride: 3 * 4 + 3 * 4 + 2 * 4,
                                 attributes: [
                                     {
                                         shaderLocation: 0,
                                         offset: 0,
                                         format: "float32x3"
-                                    }
+                                    },
+                                    {
+                                        shaderLocation: 1,
+                                        offset: 12,
+                                        format: "float32x3"
+                                    },
+                                    {
+                                        shaderLocation: 2,
+                                        offset: 24,
+                                        format: "float32x2"
+                                    },
                                 ]
                             },
                             {
