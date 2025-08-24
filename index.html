@@ -9,7 +9,7 @@
             ch = undefined;
             async function loadCharacter() {
                 const ajs = await assimpjs();
-                const fbxName = "assets/slow_run.FBX";
+                const fbxName = "assets/slow_run.fbx";
 
                 const fbx = await fetch(fbxName);
                 const buff = await fbx.arrayBuffer();
