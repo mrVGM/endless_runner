@@ -4,12 +4,12 @@
     <body>
         <canvas width="320" height="240"></canvas>
         <div id="dt"></div>
-        <script src="source/assimpjs.js"></script>
+        <script src="endless_runner/source/assimpjs.js"></script>
         <script>
             ch = undefined;
             async function loadCharacter() {
                 const ajs = await assimpjs();
-                const fbxName = "assets/slow_run.FBX";
+                const fbxName = "endless_runner/assets/slow_run.FBX";
 
                 const fbx = await fetch(fbxName);
                 const buff = await fbx.arrayBuffer();
@@ -618,8 +618,8 @@
             }
 
             let camera = {
-                pos: [0, 0, -400],
-                fwd: [0, 0, 1],
+                pos: [0, 400, -200],
+                fwd: [0, -1, 1],
                 near: 0.1,
                 far: 1000,
                 fov: 30,
