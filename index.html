@@ -1090,9 +1090,10 @@
 
                 let tickUpdates = [];
                 let bufferSync = [];
+                let renderCommands = [];
 
-                character.renderElements = [];
                 {
+                    let rendData = [];
                     let meshIndex = 0;
                     character.meshes.forEach(mesh => {
                         const verts = mesh.verts;
@@ -1235,16 +1236,21 @@
                                 },
                             ],
                         });
-                        character.renderElements.push({
+                        rendData.push({
                             vertexBuffer,
                             weightsBuff,
                             indexBuffer,
                             indices: indices.length,
                             bindGroup
                         });
-
                         ++meshIndex;
                     });
+
+                    character.registerForRendering = () => {
+                        rendData.forEach(x => {
+                            renderCommands.push(x);
+                        });
+                    };
 
                     await device.queue.onSubmittedWorkDone();
                 }
@@ -1398,6 +1404,7 @@
                     {
                         sampleAnim(diff);
                         character.updateInitialTransforms();
+                        character.registerForRendering();
                     }
 
                     let syncBufferPr = Promise.all(tickUpdates.map(x => x()));
@@ -1422,17 +1429,22 @@
 
                     const commandEncoder = device.createCommandEncoder();
                     const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-                    character.renderElements.forEach(re => {
 
-                        passEncoder.setVertexBuffer(0, re.vertexBuffer);
-                        passEncoder.setVertexBuffer(1, re.weightsBuff);
-                        passEncoder.setIndexBuffer(re.indexBuffer, "uint32");
+                    {
+                        let cache = renderCommands;
+                        renderCommands = [];
+                        cache.forEach(x => {
+                            passEncoder.setVertexBuffer(0, x.vertexBuffer);
+                            passEncoder.setVertexBuffer(1, x.weightsBuff);
+                            passEncoder.setIndexBuffer(x.indexBuffer, "uint32");
 
-                        passEncoder.setPipeline(pipeline);
-                        passEncoder.setBindGroup(0, re.bindGroup);
+                            passEncoder.setPipeline(pipeline);
+                            passEncoder.setBindGroup(0, x.bindGroup);
 
-                        passEncoder.drawIndexed(re.indices);
-                    });
+                            passEncoder.drawIndexed(x.indices);
+
+                        });
+                    }
                     passEncoder.end();
                     const finishedEncoder = commandEncoder.finish();
 
