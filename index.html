@@ -1088,7 +1088,8 @@
                     ]
                 });
 
-                const tickUpdates = [];
+                let tickUpdates = [];
+                let bufferSync = [];
 
                 character.renderElements = [];
                 {
@@ -1132,16 +1133,11 @@
                             bufView.set(transp.data);
                             transformBufferSRC.unmap();
 
-                            const commandEncoder = device.createCommandEncoder();
-                            commandEncoder.copyBufferToBuffer(
-                                transformBufferSRC,
-                                0,
-                                transformBufferDST,
-                                0,
-                                16 * 4
-                            );
-                            const finishedEncoder = commandEncoder.finish();
-                            device.queue.submit([finishedEncoder]);
+                            bufferSync.push({
+                                dst: transformBufferDST,
+                                src: transformBufferSRC,
+                                size: 16 * 4
+                            });
                         });
 
                         let weightsBuff = dummyBuffer;
@@ -1203,18 +1199,13 @@
                                             bufView[i * 16 + j] = transp.data[j];
                                         }
                                     }
-
                                     poseBufferSRC.unmap();
-                                    const commandEncoder = device.createCommandEncoder();
-                                    commandEncoder.copyBufferToBuffer(
-                                        poseBufferSRC,
-                                        0,
-                                        poseBufferDST,
-                                        0,
-                                        16 * 4 * maxBones
-                                    );
-                                    const finishedEncoder = commandEncoder.finish();
-                                    device.queue.submit([finishedEncoder]);
+
+                                    bufferSync.push({
+                                        dst: poseBufferDST,
+                                        src: poseBufferSRC,
+                                        size: 16 * 4 * maxBones
+                                    });
                                 });
                             }
                         }
@@ -1356,16 +1347,11 @@
                     // }
                     cameraBufferSRC.unmap();
 
-                    const commandEncoder = device.createCommandEncoder();
-                    commandEncoder.copyBufferToBuffer(
-                        cameraBufferSRC,
-                        0,
-                        cameraBufferDST,
-                        0,
-                        16 * 4
-                    );
-                    const finishedEncoder = commandEncoder.finish();
-                    device.queue.submit([finishedEncoder]);
+                    bufferSync.push({
+                        dst: cameraBufferDST,
+                        src: cameraBufferSRC,
+                        size: 16 * 4
+                    });
                 }
                 tickUpdates.push(updateCam);
 
@@ -1381,14 +1367,40 @@
                     character.applyAnim(anim, left, right, alpha);
                 }
 
+                function syncBuffers() {
+                    let cache = bufferSync;
+                    bufferSync = [];
+
+                    const encoders = cache.map(x => {
+                        const commandEncoder = device.createCommandEncoder();
+                        commandEncoder.copyBufferToBuffer(
+                            x.src,
+                            0,
+                            x.dst,
+                            0,
+                            x.size
+                        );
+
+                        const finishedEncoder = commandEncoder.finish();
+                        return finishedEncoder;
+                    });
+                    device.queue.submit(encoders);
+                }
+
+                await Promise.all(tickUpdates.map(x => x()));
+
                 let fpsMon = document.querySelector("div#dt");
                 let diff = 0;
                 while(true) {
                     let startFrame = Date.now();
-                    sampleAnim(diff);
-                    character.updateInitialTransforms();
-                    await Promise.all(tickUpdates.map(x => x()));
-                    await device.queue.onSubmittedWorkDone();
+
+                    syncBuffers();
+                    {
+                        sampleAnim(diff);
+                        character.updateInitialTransforms();
+                    }
+
+                    let syncBufferPr = Promise.all(tickUpdates.map(x => x()));
 
                     const textureView = context.getCurrentTexture().createView();
                     const renderPassDescriptor = {
@@ -1426,7 +1438,9 @@
 
                     device.queue.submit([finishedEncoder]);
                     let pr = device.queue.onSubmittedWorkDone();
-                    await pr;
+
+                    await Promise.all([pr, syncBufferPr]);
+
                     let now = Date.now();
                     diff = now - startFrame;
                     fpsMon.innerHTML = diff;
