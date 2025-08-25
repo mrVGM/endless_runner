@@ -6,10 +6,9 @@
         <div id="dt"></div>
         <script src="source/assimpjs.js"></script>
         <script>
-            ch = undefined;
-            async function loadCharacter() {
+            async function loadFBX(file) {
                 const ajs = await assimpjs();
-                const fbxName = "assets/slow_run.fbx";
+                const fbxName = file;
 
                 const fbx = await fetch(fbxName);
                 const buff = await fbx.arrayBuffer();
@@ -732,270 +731,278 @@
 
             const maxBones = 100;
             async function initWebGPU() {
-                const characterFBX = await loadCharacter();
+                const characterFBX = await loadFBX("assets/slow_run.fbx");
+                const railFBX = await loadFBX("assets/rail.fbx");
                 console.log(characterFBX);
 
-                const character = {
-                    meshes: [],
-                    animations: characterFBX.animations,
-                    sample: (animation, frame) => {
-                        const locals = {};
-                        animation.channels.forEach(channel => {
-                            let pos = channel.positionkeys[frame][1];
-                            let rot = channel.rotationkeys[frame][1];
-                            let scale = channel.scalingkeys[frame][1];
+                function createActor(fbxJSON) {
+                    const actor = {
+                        meshes: [],
+                        animations: fbxJSON.animations,
+                        sample: (animation, frame) => {
+                            const locals = {};
+                            animation.channels.forEach(channel => {
+                                let pos = channel.positionkeys[frame][1];
+                                let rot = channel.rotationkeys[frame][1];
+                                let scale = channel.scalingkeys[frame][1];
 
-                            let mSc = mat4([
-                                scale[0],        0,        0, 0, 
-                                       0, scale[1],        0, 0, 
-                                       0,        0, scale[2], 0, 
-                                       0,        0,        0, 1, 
-                            ]);
-
-                            let mR = qToMat(rot);
-                            let mTr = mat4([
-                                1, 0, 0, pos[0], 
-                                0, 1, 0, pos[1], 
-                                0, 0, 1, pos[2], 
-                                0, 0, 0, 1, 
-                            ]);
-
-                            locals[channel.name] = multiply(mTr, multiply(mR, mSc));
-                        });
-
-                        let glob = {};
-                        {
-                            function calcGlobTr(bone) {
-                                if (glob[bone]) {
-                                    return;
-                                }
-
-                                let skBone = character.skeleton[bone];
-                                let localTr = locals[bone] ? locals[bone] : skBone.defaultTr;
-
-                                if (!skBone.parent) {
-                                    glob[bone] = localTr;
-                                    return;
-                                }
-                                
-                                calcGlobTr(skBone.parent);
-                                let parentTr = glob[skBone.parent];
-                                glob[bone] = multiply(parentTr, localTr);
-                            }
-
-                            for (let bone in locals) {
-                                if (!glob[bone]) {
-                                    calcGlobTr(bone);
-                                }
-                            }
-                        }
-                        return glob;
-                    },
-                };
-
-                ch = character;
-                let boneSet = {};
-                {
-                    characterFBX.meshes.forEach(mesh => {
-                        const meshVerts = [];
-                        {
-                            function* v() {
-                                for (let i = 0; i < mesh.vertices.length; ++i) {
-                                    yield mesh.vertices[i];
-                                }
-                            }
-                            function* n() {
-                                for (let i = 0; i < mesh.vertices.length; ++i) {
-                                    yield mesh.normals[i];
-                                }
-                            }
-                            function* t() {
-                                let texCoord = mesh.texturecoords[0];
-                                for (let i = 0; i < texCoord.length; ++i) {
-                                    yield texCoord[i];
-                                }
-                            }
-
-                            function* vIt() {
-                                let vi = v();
-                                let ni = n();
-                                let ti = t();
-
-                                while (true) {
-                                    for (let i = 0; i < 3; ++i) {
-                                        let v = vi.next();
-                                        if (v.done) {
-                                            return;
-                                        }
-
-                                        yield v.value;
-                                    }
-                                    for (let i = 0; i < 3; ++i) {
-                                        let n = ni.next();
-                                        yield n.value;
-                                    }
-                                    for (let i = 0; i < 2; ++i) {
-                                        let t = ti.next();
-                                        yield t.value;
-                                    }
-                                }
-                            }
-
-                            let it = vIt();
-                            while (true) {
-                                let cur = it.next();
-                                if (cur.done) {
-                                    break;
-                                }
-                                meshVerts.push(cur.value);
-                            }
-                        }
-
-                        let meshIndices = [];
-                        mesh.faces.forEach(x => {
-                            meshIndices = meshIndices.concat(x);
-                        });
-
-                        const weightArr =
-                            new Array(mesh.vertices.length / 3);
-
-                        let bones = mesh.bones;
-                        if (!bones) {
-                            bones = [];
-                        }
-                        for (let i = 0; i < bones.length; ++i) {
-                            const cur = bones[i];
-                            cur.weights.forEach(w => {
-                                if (!weightArr[w[0]]) {
-                                    weightArr[w[0]] = {weights: []};
-                                }
-                                weightArr[w[0]].weights.push({
-                                    bone: i,
-                                    weight: w[1]
-                                });
-                            });
-                        }
-
-                        const meshObj = {
-                            verts: new Float32Array(meshVerts),
-                            indices: new Uint32Array(meshIndices),
-                            boneMap: {},
-                            bones: bones.map(x => {
-                                return {
-                                    name: x.name,
-                                    offset: mat4(x.offsetmatrix)
-                                }
-                            }),
-                            pose: bones.map(_ => {
-                                return mat4([
-                                    1, 0, 0, 0,  
-                                    0, 1, 0, 0,  
-                                    0, 0, 1, 0,  
-                                    0, 0, 0, 1,  
+                                let mSc = mat4([
+                                    scale[0], 0, 0, 0,
+                                    0, scale[1], 0, 0,
+                                    0, 0, scale[2], 0,
+                                    0, 0, 0, 1,
                                 ]);
-                            }),
-                            weights: weightArr,
-                        };
 
-                        bones.forEach((x, i) => {
-                            meshObj.boneMap[x.name] = i;
-                            boneSet[x.name] = true;
-                        });
-                        character.meshes.push(meshObj);
-                    });
+                                let mR = qToMat(rot);
+                                let mTr = mat4([
+                                    1, 0, 0, pos[0],
+                                    0, 1, 0, pos[1],
+                                    0, 0, 1, pos[2],
+                                    0, 0, 0, 1,
+                                ]);
 
-                    character.skeleton = {};
-                    {
-                        function traverse(node, parentName, parentTr) {
-                            let curTr = multiply(parentTr, mat4(node.transformation));
-                            if (boneSet[node.name]) {
-                                character.skeleton[node.name] = {
-                                    parent: parentName,
-                                    defaultTr: curTr,
-                                }
-                                parentName = node.name;
-                            }
-
-                            if (!node.children) {
-                                return
-                            }
-
-                            for (let i = 0; i < node.children.length; ++i) {
-                                traverse(node.children[i], parentName, curTr);
-                            }
-                        }
-                        let unit = mat4([
-                            1, 0, 0, 0, 
-                            0, 1, 0, 0, 
-                            0, 0, 1, 0, 
-                            0, 0, 0, 1, 
-                        ]);
-                        traverse(characterFBX.rootnode, undefined, unit);
-                    }
-
-                    character.applyAnim = (anim, frame1, frame2, alpha) => {
-                        function getMatrices() {
-                            if (alpha < eps) {
-                                return character.sample(anim, frame1);
-                            }
-                            if (alpha > 1 - eps) {
-                                return character.sample(anim, frame2);
-                            }
-
-                            let mats1 = character.sample(anim, frame1);
-                            let mats2 = character.sample(anim, frame2);
-
-                            let mats3 = {};
-
-                            for (let bone in mats1) {
-                                let m1 = mats1[bone];
-                                let m2 = mats2[bone];
-
-                                mats3[bone] = lerp(m1, m2, alpha);
-                            }
-
-                            return mats3;
-                        }
-                        let res = getMatrices();
-
-                        character.meshes.forEach(mesh => {
-                            mesh.bones.forEach((bone, i) => {
-                                const boneTr = bone.offset;
-                                const tr = multiply(res[bone.name], boneTr);
-                                mesh.pose[i] = tr;
+                                locals[channel.name] = multiply(mTr, multiply(mR, mSc));
                             });
-                        });
+
+                            let glob = {};
+                            {
+                                function calcGlobTr(bone) {
+                                    if (glob[bone]) {
+                                        return;
+                                    }
+
+                                    let skBone = actor.skeleton[bone];
+                                    let localTr = locals[bone] ? locals[bone] : skBone.defaultTr;
+
+                                    if (!skBone.parent) {
+                                        glob[bone] = localTr;
+                                        return;
+                                    }
+
+                                    calcGlobTr(skBone.parent);
+                                    let parentTr = glob[skBone.parent];
+                                    glob[bone] = multiply(parentTr, localTr);
+                                }
+
+                                for (let bone in locals) {
+                                    if (!glob[bone]) {
+                                        calcGlobTr(bone);
+                                    }
+                                }
+                            }
+                            return glob;
+                        },
                     };
 
-                    function updateInitialTransforms() {
-                        function helper(node, parentTr) {
-                            let matrix = multiply(parentTr, mat4(node.transformation));
-                            if (node.meshes) {
-                                node.meshes.forEach(x => {
-                                    character.meshes[x].initialTransform = matrix;
+                    let boneSet = {};
+                    {
+                        fbxJSON.meshes.forEach(mesh => {
+                            const meshVerts = [];
+                            {
+                                function* v() {
+                                    for (let i = 0; i < mesh.vertices.length; ++i) {
+                                        yield mesh.vertices[i];
+                                    }
+                                }
+                                function* n() {
+                                    for (let i = 0; i < mesh.vertices.length; ++i) {
+                                        yield mesh.normals[i];
+                                    }
+                                }
+                                function* t() {
+                                    let texCoord = mesh.texturecoords[0];
+                                    for (let i = 0; i < texCoord.length; ++i) {
+                                        yield texCoord[i];
+                                    }
+                                }
+
+                                function* vIt() {
+                                    let vi = v();
+                                    let ni = n();
+                                    let ti = t();
+
+                                    while (true) {
+                                        for (let i = 0; i < 3; ++i) {
+                                            let v = vi.next();
+                                            if (v.done) {
+                                                return;
+                                            }
+
+                                            yield v.value;
+                                        }
+                                        for (let i = 0; i < 3; ++i) {
+                                            let n = ni.next();
+                                            yield n.value;
+                                        }
+                                        for (let i = 0; i < 2; ++i) {
+                                            let t = ti.next();
+                                            yield t.value;
+                                        }
+                                    }
+                                }
+
+                                let it = vIt();
+                                while (true) {
+                                    let cur = it.next();
+                                    if (cur.done) {
+                                        break;
+                                    }
+                                    meshVerts.push(cur.value);
+                                }
+                            }
+
+                            let meshIndices = [];
+                            mesh.faces.forEach(x => {
+                                meshIndices = meshIndices.concat(x);
+                            });
+
+                            const weightArr =
+                                new Array(mesh.vertices.length / 3);
+
+                            let bones = mesh.bones;
+                            if (!bones) {
+                                bones = [];
+                            }
+                            for (let i = 0; i < bones.length; ++i) {
+                                const cur = bones[i];
+                                cur.weights.forEach(w => {
+                                    if (!weightArr[w[0]]) {
+                                        weightArr[w[0]] = { weights: [] };
+                                    }
+                                    weightArr[w[0]].weights.push({
+                                        bone: i,
+                                        weight: w[1]
+                                    });
                                 });
                             }
 
-                            if (node.children) {
+                            const meshObj = {
+                                verts: new Float32Array(meshVerts),
+                                indices: new Uint32Array(meshIndices),
+                                boneMap: {},
+                                bones: bones.map(x => {
+                                    return {
+                                        name: x.name,
+                                        offset: mat4(x.offsetmatrix)
+                                    }
+                                }),
+                                pose: bones.map(_ => {
+                                    return mat4([
+                                        1, 0, 0, 0,
+                                        0, 1, 0, 0,
+                                        0, 0, 1, 0,
+                                        0, 0, 0, 1,
+                                    ]);
+                                }),
+                                weights: weightArr,
+                            };
+
+                            bones.forEach((x, i) => {
+                                meshObj.boneMap[x.name] = i;
+                                boneSet[x.name] = true;
+                            });
+                            actor.meshes.push(meshObj);
+                        });
+
+                        actor.skeleton = {};
+                        {
+                            function traverse(node, parentName, parentTr) {
+                                let curTr = multiply(parentTr, mat4(node.transformation));
+                                if (boneSet[node.name]) {
+                                    actor.skeleton[node.name] = {
+                                        parent: parentName,
+                                        defaultTr: curTr,
+                                    }
+                                    parentName = node.name;
+                                }
+
+                                if (!node.children) {
+                                    return
+                                }
+
                                 for (let i = 0; i < node.children.length; ++i) {
-                                    helper(node.children[i], matrix);
+                                    traverse(node.children[i], parentName, curTr);
                                 }
                             }
+                            let unit = mat4([
+                                1, 0, 0, 0,
+                                0, 1, 0, 0,
+                                0, 0, 1, 0,
+                                0, 0, 0, 1,
+                            ]);
+                            traverse(fbxJSON.rootnode, undefined, unit);
                         }
-                        let unit = mat4([
-                            1, 0, 0, 0,
-                            0, 1, 0, 0,
-                            0, 0, 1, 0,
-                            0, 0, 0, 1,
-                        ]);
 
-                        let curNode = characterFBX.rootnode;
-                        helper(curNode, unit);
+                        actor.applyAnim = (anim, frame1, frame2, alpha) => {
+                            function getMatrices() {
+                                if (alpha < eps) {
+                                    return actor.sample(anim, frame1);
+                                }
+                                if (alpha > 1 - eps) {
+                                    return actor.sample(anim, frame2);
+                                }
+
+                                let mats1 = actor.sample(anim, frame1);
+                                let mats2 = actor.sample(anim, frame2);
+
+                                let mats3 = {};
+
+                                for (let bone in mats1) {
+                                    let m1 = mats1[bone];
+                                    let m2 = mats2[bone];
+
+                                    mats3[bone] = lerp(m1, m2, alpha);
+                                }
+
+                                return mats3;
+                            }
+                            let res = getMatrices();
+
+                            actor.meshes.forEach(mesh => {
+                                mesh.bones.forEach((bone, i) => {
+                                    const boneTr = bone.offset;
+                                    const tr = multiply(res[bone.name], boneTr);
+                                    mesh.pose[i] = tr;
+                                });
+                            });
+                        };
+
+                        function updateInitialTransforms() {
+                            function helper(node, parentTr) {
+                                let matrix = multiply(parentTr, mat4(node.transformation));
+                                if (node.meshes) {
+                                    node.meshes.forEach(x => {
+                                        actor.meshes[x].initialTransform = matrix;
+                                    });
+                                }
+
+                                if (node.children) {
+                                    for (let i = 0; i < node.children.length; ++i) {
+                                        helper(node.children[i], matrix);
+                                    }
+                                }
+                            }
+                            let unit = mat4([
+                                1, 0, 0, 0,
+                                0, 1, 0, 0,
+                                0, 0, 1, 0,
+                                0, 0, 0, 1,
+                            ]);
+
+                            let curNode = fbxJSON.rootnode;
+                            helper(curNode, unit);
+                        }
+                        actor.updateInitialTransforms = updateInitialTransforms;
+
+                        updateInitialTransforms();
                     }
-                    character.updateInitialTransforms = updateInitialTransforms;
 
-                    updateInitialTransforms();
+                    return actor;
                 }
+
+                let character = createActor(characterFBX);
+                let rail = createActor(railFBX);
+
                 console.log(character);
 
                 const adapter = await navigator.gpu?.requestAdapter({
@@ -1092,10 +1099,10 @@
                 let bufferSync = [];
                 let renderCommands = [];
 
-                {
+                async function addActorRenderFunction(actor) {
                     let rendData = [];
                     let meshIndex = 0;
-                    character.meshes.forEach(mesh => {
+                    actor.meshes.forEach(mesh => {
                         const verts = mesh.verts;
                         const indices = mesh.indices;
 
@@ -1246,7 +1253,7 @@
                         ++meshIndex;
                     });
 
-                    character.registerForRendering = () => {
+                    actor.registerForRendering = () => {
                         rendData.forEach(x => {
                             renderCommands.push(x);
                         });
@@ -1254,6 +1261,10 @@
 
                     await device.queue.onSubmittedWorkDone();
                 }
+                await Promise.all([
+                    addActorRenderFunction(character),
+                    addActorRenderFunction(rail),
+                ]);
 
                 console.log("vertex/index buffer ready");
 
@@ -1403,8 +1414,12 @@
                     syncBuffers();
                     {
                         sampleAnim(diff);
+
                         character.updateInitialTransforms();
+                        rail.updateInitialTransforms();
+
                         character.registerForRendering();
+                        rail.registerForRendering();
                     }
 
                     let syncBufferPr = Promise.all(tickUpdates.map(x => x()));
