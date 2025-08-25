@@ -731,12 +731,24 @@
 
             const maxBones = 100;
             async function initWebGPU() {
-                const characterFBX = await loadFBX("assets/slow_run.fbx");
-                const railFBX = await loadFBX("assets/rail.fbx");
+
+                let characterFBX = loadFBX("assets/slow_run.fbx");
+                let railFBX = loadFBX("assets/rail.fbx");
+
+                await Promise.all([characterFBX, railFBX]);
+                characterFBX = await characterFBX;
+                railFBX = await railFBX;
+
                 console.log(characterFBX);
 
                 function createActor(fbxJSON) {
                     const actor = {
+                        fbx: fbxJSON,
+                        appyTransform: (tr) => {
+                            let mat = mat4(rail.fbx.rootnode.transformation);
+                            mat = multiply(tr, mat);
+                            actor.fbx.rootnode.transformation = mat.data.map(x => x);
+                        },
                         meshes: [],
                         animations: fbxJSON.animations,
                         sample: (animation, frame) => {
@@ -1003,7 +1015,19 @@
                 let character = createActor(characterFBX);
                 let rail = createActor(railFBX);
 
+                {
+                    let scale = mat4([
+                        0.2, 0, 0, 0,
+                        0, 0.2, 0, 0,
+                        0, 0, 0.2, 0,
+                        0, 0, 0, 0.2, 
+                    ]);
+                    rail.appyTransform(scale);
+                }
+
+
                 console.log(character);
+                console.log(rail, railFBX);
 
                 const adapter = await navigator.gpu?.requestAdapter({
                     featureLevel: 'compatibility',
