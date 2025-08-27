@@ -4,33 +4,10 @@
     <body>
         <canvas width="320" height="240"></canvas>
         <div id="dt"></div>
+
         <script src="source/assimpjs.js"></script>
         <script>
-            async function loadFBX(file) {
-                const ajs = await assimpjs();
-                const fbxName = file;
-
-                const fbx = await fetch(fbxName);
-                const buff = await fbx.arrayBuffer();
-
-                const fileList = new ajs.FileList();
-                fileList.AddFile(fbxName, new Uint8Array(buff));
-
-                const result = ajs.ConvertFileList(fileList, "assjson");
-                if (!result.IsSuccess () || result.FileCount () == 0) {
-                        onLoad (result.GetErrorCode ());
-					return;
-				}
-
-                let resultFile = result.GetFile (0);
-                let jsonContent = new TextDecoder ().decode (resultFile.GetContent());
-
-                // parse the result json
-                let resultJson = JSON.parse(jsonContent);
-                return resultJson;
-            }
-        </script>
-        <script>
+// ### start Math
             let eps = 0.00000001;
             function* permutations(n) {
                 function* leftovers(used) {
@@ -725,12 +702,39 @@
                 let tmp = qMult(q, qMult(qV, qConj(q)));
                 return [tmp[1], tmp[2], tmp[3]];
             }
+// ### end Math
+
+// ### start Assets
+
+            async function loadFBX(file) {
+                const ajs = await assimpjs();
+                const fbxName = file;
+
+                const fbx = await fetch(fbxName);
+                const buff = await fbx.arrayBuffer();
+
+                const fileList = new ajs.FileList();
+                fileList.AddFile(fbxName, new Uint8Array(buff));
+
+                const result = ajs.ConvertFileList(fileList, "assjson");
+                if (!result.IsSuccess () || result.FileCount () == 0) {
+                        onLoad (result.GetErrorCode ());
+					return;
+				}
+
+                let resultFile = result.GetFile (0);
+                let jsonContent = new TextDecoder ().decode (resultFile.GetContent());
+
+                // parse the result json
+                let resultJson = JSON.parse(jsonContent);
+                return resultJson;
+            }
 
             const canvas = document.querySelector("canvas");
             console.log(canvas);
 
             const maxBones = 100;
-            async function initWebGPU() {
+            async function loadAssets() {
 
                 let characterFBX = loadFBX("assets/slow_run.fbx");
                 let railFBX = loadFBX("assets/rail.fbx");
@@ -1020,7 +1024,7 @@
                         0.2, 0, 0, 0,
                         0, 0.2, 0, 0,
                         0, 0, 0.2, 0,
-                        0, 0, 0, 0.2, 
+                        0, 0, 0, 0.2,
                     ]);
                     rail.appyTransform(scale);
                 }
@@ -1028,6 +1032,16 @@
 
                 console.log(character);
                 console.log(rail, railFBX);
+
+                return {
+                    character,
+                    rail
+                };
+            }
+// ### end Assets
+
+            async function runApp() {
+                const { character, rail } = await loadAssets();
 
                 const adapter = await navigator.gpu?.requestAdapter({
                     featureLevel: 'compatibility',
@@ -1055,6 +1069,41 @@
 
                 // console.log(vertexShader, fragmentShader);
 
+// ### start Render Buffers
+                let tickUpdates = [];
+                let bufferSync = [];
+                let renderCommands = [];
+
+// ### start Dummys
+                let yesBuffer = device.createBuffer({
+                    label: "yes buffer",
+                    size: 4,
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                });
+                let noBuffer = device.createBuffer({
+                    label: "no buffer",
+                    size: 4,
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                });
+                const dummyBuffer = device.createBuffer({
+                    label: "dummy buffer",
+                    size: 16 * 4 * maxBones,
+                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+                });
+
+                {
+                    let yes = new Uint32Array(1);
+                    yes[0] = 1;
+                    let no = new Uint32Array(1);
+                    no[0] = 0;
+
+                    device.queue.writeBuffer(yesBuffer, 0, yes);
+                    device.queue.writeBuffer(noBuffer, 0, no);
+                    await device.queue.onSubmittedWorkDone();
+                }
+
+// ### start Dummys
+
                 let cameraBufferDST = device.createBuffer({
                     label: "camera buffer dst",
                     size: 16 * 4,
@@ -1067,18 +1116,24 @@
                     usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
                 });
 
-                const dummyBuffer = device.createBuffer({
-                    label: "dummy buffer",
-                    size: 16 * 4 * maxBones,
-                    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+                tickUpdates.push(async () => {
+                    camera.update();
+                    await cameraBufferSRC.mapAsync(GPUMapMode.WRITE);
+                    let mapped = cameraBufferSRC.getMappedRange();
+
+                    let camBufView = new Float32Array(mapped);
+                    let transp = transpose(camera.mvp);
+                    camBufView.set(transp.data);
+
+                    cameraBufferSRC.unmap();
+
+                    bufferSync.push({
+                        dst: cameraBufferDST,
+                        src: cameraBufferSRC,
+                        size: 16 * 4
+                    });
                 });
-                {
-                    let tmp = new Uint8Array(512);
-                    tmp[0] = 0;
-                    tmp[256] = 1;
-                    device.queue.writeBuffer(dummyBuffer, 0, tmp);
-                    await device.queue.onSubmittedWorkDone();
-                }
+
 
                 const bindGroupLayout = device.createBindGroupLayout({
                     entries: [
@@ -1119,9 +1174,6 @@
                     ]
                 });
 
-                let tickUpdates = [];
-                let bufferSync = [];
-                let renderCommands = [];
 
                 async function addActorRenderFunction(actor) {
                     let rendData = [];
@@ -1256,10 +1308,15 @@
                                 },
                                 {
                                     binding: 2,
-                                    resource: { 
-                                        buffer: dummyBuffer,
-                                        offset: (mesh.bones.length > 0) ? 256 : 0,
-                                    },
+                                    resource: mesh.bones.length > 0
+                                        ? { 
+                                            buffer: yesBuffer,
+                                            offset: 0,
+                                        }
+                                        : {
+                                            buffer: noBuffer,
+                                            offset: 0,
+                                        },
                                 },
                                 {
                                     binding: 3,
@@ -1289,7 +1346,9 @@
                     addActorRenderFunction(character),
                     addActorRenderFunction(rail),
                 ]);
+// ### end Render Buffers
 
+// ### start Pipeline
                 console.log("vertex/index buffer ready");
 
                 const depthTexture = device.createTexture({
@@ -1374,27 +1433,7 @@
                     },
                 });
 
-                async function updateCam() {
-                    camera.update();
-                    await cameraBufferSRC.mapAsync(GPUMapMode.WRITE);
-                    let mapped = cameraBufferSRC.getMappedRange();
-
-                    let camBufView = new Float32Array(mapped);
-                    let transp = transpose(camera.mvp);
-                    camBufView.set(transp.data);
-
-                    // for (let i = 0; i < 16; ++i) {
-                    //     camBufView.setFloat32(camera.mvp.data[i]);
-                    // }
-                    cameraBufferSRC.unmap();
-
-                    bufferSync.push({
-                        dst: cameraBufferDST,
-                        src: cameraBufferSRC,
-                        size: 16 * 4
-                    });
-                }
-                tickUpdates.push(updateCam);
+// ### end Pipeline
 
                 let animProg = 0;
                 function sampleAnim(dt) {
@@ -1432,6 +1471,8 @@
 
                 let fpsMon = document.querySelector("div#dt");
                 let diff = 0;
+
+// ### start Render Loop
                 while(true) {
                     let startFrame = Date.now();
 
@@ -1496,12 +1537,10 @@
                     diff = now - startFrame;
                     fpsMon.innerHTML = diff;
                 }
+// ### end Render Loop
             }
 
-            initWebGPU();
-        </script>
-        <script>
-            // init();
+            runApp();
         </script>
     </body>
 </html>
