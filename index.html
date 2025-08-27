@@ -1441,6 +1441,19 @@
                     await device.queue.onSubmittedWorkDone();
                 }
 
+                let railInstances = [];
+                for (let i = 0; i < 100; ++i) {
+                    railInstances.push(
+                        [0, 0, i * 230]
+                    );
+                    railInstances.push(
+                        [150, 0, i * 230]
+                    );
+                    railInstances.push(
+                        [-150, 0, i * 230]
+                    );
+                }
+
                 await Promise.all([
                     addActorRenderFunction(
                         character,
@@ -1453,6 +1466,7 @@
                     ),
                     addActorRenderFunction(
                         rail,
+                        railInstances,
                         [
                             [0, 0, 0],
                             [0, 0, 230],
