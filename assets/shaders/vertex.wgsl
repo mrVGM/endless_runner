@@ -16,17 +16,25 @@ struct VOut {
 
 fn transf_point(
   point: vec3<f32>,
+  offset: vec3<f32>,
 
   i1: vec4<u32>,
   i2: vec4<u32>,
   w1: vec4<f32>,
   w2: vec4<f32>
 ) -> vec3<f32> {
+  let offset_m: mat4x4<f32> = mat4x4f(
+    1,         0,         0,         0, 
+    0,         1,         0,         0,
+    0,         0,         1,         0,
+    offset[0], offset[1], offset[2], 1
+  );
+
   let tr = object_transf;
 
   if (is_skeletal == 0) {
     let res: vec4f = tr * vec4f(point, 1.0);
-    return res.xyz; 
+    return (offset_m * res).xyz; 
   }
 
   var res: vec4f = vec4(0, 0, 0, 0);
@@ -43,7 +51,7 @@ fn transf_point(
 
   res[3] = 1;
   res = tr * res;
-  return res.xyz;
+  return (offset_m * res).xyz;
 }
 
 @vertex
@@ -55,14 +63,16 @@ fn main(
     @location(10) i1: vec4<u32>,
     @location(11) i2: vec4<u32>,
     @location(12) w1: vec4<f32>,
-    @location(13) w2: vec4<f32>
+    @location(13) w2: vec4<f32>,
+
+    @location(15) inst_pos: vec3<f32>
 ) -> VOut {
 
   var out: VOut;
   out.uv = uv;
 
-  let posTr = transf_point(pos, i1, i2, w1, w2);
-  let posNormEndTr = transf_point(pos + norm, i1, i2, w1, w2);
+  let posTr = transf_point(pos, inst_pos, i1, i2, w1, w2);
+  let posNormEndTr = transf_point(pos + norm, inst_pos + norm, i1, i2, w1, w2);
 
   let normal = normalize(posNormEndTr - posTr);
   out.normal = normal;

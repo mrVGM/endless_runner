@@ -1049,7 +1049,7 @@
                         0.2, 0, 0, 0,
                         0, 0.2, 0, 0,
                         0, 0, 0.2, 0,
-                        0, 0, 0, 0.2,
+                        0, 0, 0,   1,
                     ]);
                     rail.appyTransform(scale);
                 }
@@ -1117,6 +1117,11 @@
                     size: 16 * 4 * maxBones,
                     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
                 });
+                let dummyInstance = device.createBuffer({
+                    label: "dummy instance buffer",
+                    size: 3 * 4,
+                    usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+                });
 
                 {
                     let yes = new Uint32Array(1);
@@ -1124,8 +1129,12 @@
                     let no = new Uint32Array(1);
                     no[0] = 0;
 
+                    let pos = new Float32Array(3).fill(0);
+
                     device.queue.writeBuffer(yesBuffer, 0, yes);
                     device.queue.writeBuffer(noBuffer, 0, no);
+                    device.queue.writeBuffer(dummyInstance, 0, pos);
+
                     await device.queue.onSubmittedWorkDone();
                 }
 
@@ -1235,9 +1244,31 @@
                 });
 
 
-                async function addActorRenderFunction(actor) {
+                async function addActorRenderFunction(actor, instances) {
                     let rendData = [];
                     let meshIndex = 0;
+
+                    let instanceBuffer = dummyInstance;
+                    let instanceCount = 1;
+
+                    if (instances) {
+                        instanceCount = instances.length;
+                        instanceBuffer = device.createBuffer({
+                            label: "instance buffer",
+                            size: 3 * 4 * instanceCount,
+                            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+                        });
+
+                        let tmp = new Float32Array(3 * instanceCount);
+                        for (let i = 0; i < instanceCount; ++i) {
+                            tmp[i * 3 + 0] = instances[i][0];
+                            tmp[i * 3 + 1] = instances[i][1];
+                            tmp[i * 3 + 2] = instances[i][2];
+                        }
+
+                        device.queue.writeBuffer(instanceBuffer, 0, tmp);
+                    }
+
                     actor.meshes.forEach(mesh => {
                         const verts = mesh.verts;
                         const indices = mesh.indices;
@@ -1391,6 +1422,8 @@
                         });
                         rendData.push({
                             vertexBuffer,
+                            instanceBuffer,
+                            instanceCount,
                             weightsBuff,
                             indexBuffer,
                             indices: indices.length,
@@ -1407,9 +1440,24 @@
 
                     await device.queue.onSubmittedWorkDone();
                 }
+
                 await Promise.all([
-                    addActorRenderFunction(character),
-                    addActorRenderFunction(rail),
+                    addActorRenderFunction(
+                        character,
+                        // undefined,
+                        [
+                            [0, 0, 0],
+                            [150, 0, 0],
+                        ]
+
+                    ),
+                    addActorRenderFunction(
+                        rail,
+                        [
+                            [0, 0, 0],
+                            [0, 0, 230],
+                        ]
+                    ),
                 ]);
 // ### end Render Buffers
 
@@ -1475,7 +1523,18 @@
                                         format: "float32x4"
                                     },
                                 ]
-                            }
+                            },
+                            {
+                                arrayStride: 3 * 4,
+                                stepMode: "instance",
+                                attributes: [
+                                    {
+                                        shaderLocation: 15,
+                                        offset: 0,
+                                        format: "float32x3"
+                                    },
+                                ]
+                            },
                         ]
                     },
                     fragment: {
@@ -1587,12 +1646,13 @@
                         cache.forEach(x => {
                             passEncoder.setVertexBuffer(0, x.vertexBuffer);
                             passEncoder.setVertexBuffer(1, x.weightsBuff);
+                            passEncoder.setVertexBuffer(2, x.instanceBuffer);
                             passEncoder.setIndexBuffer(x.indexBuffer, "uint32");
 
                             passEncoder.setPipeline(pipeline);
                             passEncoder.setBindGroup(0, x.bindGroup);
 
-                            passEncoder.drawIndexed(x.indices);
+                            passEncoder.drawIndexed(x.indices, x.instanceCount);
 
                         });
                     }
