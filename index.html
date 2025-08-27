@@ -758,7 +758,7 @@
                 };
                 assetRepo.railFBX = {
                     src: JSON.stringify(railFBX),
-                    materials: characterFBX.materials.map(x => {
+                    materials: railFBX.materials.map(x => {
                         let diffuse = x.properties.filter(p => {
                             return p.key === "$clr.diffuse";
                         })[0];
@@ -1218,6 +1218,13 @@
                                 type: "uniform"
                             },
                         },
+                        {
+                            binding: 4, // material uniform
+                            visibility: GPUShaderStage.FRAGMENT,
+                            buffer: {
+                                type: "uniform"
+                            },
+                        },
                     ]
                 });
 
@@ -1347,6 +1354,7 @@
                             }
                         }
 
+                        let mat = actor.materials[mesh.matIndex];
                         const bindGroup = device.createBindGroup({
                             label: `bind group ${meshIndex}`,
                             layout: bindGroupLayout,
@@ -1375,6 +1383,10 @@
                                     binding: 3,
                                     resource: { buffer: poseBuff },
                                 },
+                                {
+                                    binding: 4,
+                                    resource: { buffer: mat.buffer },
+                                }
                             ],
                         });
                         rendData.push({
@@ -1542,12 +1554,18 @@
 
                     let syncBufferPr = Promise.all(tickUpdates.map(x => x()));
 
+                    let clearColor = [
+                        213.0 / 255.0,
+                        248.0 / 255.0,
+                        255.0 / 255.0,
+                        1.0,
+                    ];
                     const textureView = context.getCurrentTexture().createView();
                     const renderPassDescriptor = {
                         colorAttachments: [
                             {
                                 view: textureView,
-                                clearValue: [0, 0, 0, 0], // Clear to transparent
+                                clearValue: clearColor, // Clear to transparent
                                 loadOp: 'clear',
                                 storeOp: 'store',
                             },

@@ -1,17 +1,13 @@
+@group(0) @binding(4) var<uniform> diffuse : vec3<f32>;
+
 @fragment
 fn main(
   @location(0) normal: vec3<f32>,
   @location(1) uv: vec2<f32>
 ) -> @location(0) vec4f {
 
-  var dark = vec3f(0.7, 0.0, 0.0);
-  var light = vec3f(1.0, 0.0, 0.0);
-
-  let uvInt = floor(10 * uv);
-  if ((uvInt.x + uvInt.y) % 2 == 1) {
-    dark = vec3f(0.7, 0.5, 0.0);
-    light = vec3f(1.0, 0.5, 0.0);
-  }
+  var dark = 0.9 * diffuse;
+  var light = diffuse;
 
   let lightDir = normalize(vec3f(-1, -1, 1));
 
