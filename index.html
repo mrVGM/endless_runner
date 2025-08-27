@@ -733,6 +733,8 @@
             const canvas = document.querySelector("canvas");
             console.log(canvas);
 
+            const assetRepo = {};
+
             const maxBones = 100;
             async function loadAssets() {
 
@@ -743,8 +745,30 @@
                 characterFBX = await characterFBX;
                 railFBX = await railFBX;
 
-                console.log(characterFBX);
+                assetRepo.characterFBX = {
+                    src: JSON.stringify(characterFBX),
+                    materials: characterFBX.materials.map(x => {
+                        let diffuse = x.properties.filter(p => {
+                            return p.key === "$clr.diffuse";
+                        })[0];
+                        return {
+                            diffuse: diffuse.value
+                        };
+                    }),
+                };
+                assetRepo.railFBX = {
+                    src: JSON.stringify(railFBX),
+                    materials: characterFBX.materials.map(x => {
+                        let diffuse = x.properties.filter(p => {
+                            return p.key === "$clr.diffuse";
+                        })[0];
+                        return {
+                            diffuse: diffuse.value
+                        };
+                    }),
+                };
 
+                console.log(characterFBX);
                 function createActor(fbxJSON) {
                     const actor = {
                         fbx: fbxJSON,
@@ -893,6 +917,7 @@
                             }
 
                             const meshObj = {
+                                matIndex: mesh.materialindex,
                                 verts: new Float32Array(meshVerts),
                                 indices: new Uint32Array(meshIndices),
                                 boneMap: {},
@@ -1042,6 +1067,8 @@
 
             async function runApp() {
                 const { character, rail } = await loadAssets();
+                character.materials = assetRepo.characterFBX.materials;
+                rail.materials = assetRepo.railFBX.materials;
 
                 const adapter = await navigator.gpu?.requestAdapter({
                     featureLevel: 'compatibility',
@@ -1102,7 +1129,33 @@
                     await device.queue.onSubmittedWorkDone();
                 }
 
-// ### start Dummys
+// ### end Dummys
+
+// ### start MaterialBuffers
+
+                for (let key in assetRepo) {
+                    let a = assetRepo[key];
+                    for (let i = 0; i < a.materials.length; ++i) {
+                        let mat = a.materials[i];
+
+                        const matBuffer = device.createBuffer({
+                            label: "material buffer",
+                            size: 3 * 4,
+                            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+                        });
+
+                        let color = new Float32Array(3).fill(0);
+                        for (let j = 0; j < mat.diffuse.length; ++j) {
+                            color[j] = mat.diffuse[j];
+                        }
+                        device.queue.writeBuffer(matBuffer, 0, color);
+                        mat.buffer = matBuffer;
+                    }
+                }
+                await device.queue.onSubmittedWorkDone();
+
+// ### end MaterialBuffers
+
 
                 let cameraBufferDST = device.createBuffer({
                     label: "camera buffer dst",
