@@ -54,6 +54,55 @@ fn transf_point(
   return (offset_m * res).xyz;
 }
 
+const PI: f32 = 3.14159265359;
+
+fn bend_horizontal(point: vec3<f32>, r: f32) -> vec3<f32> {
+  let p = point;
+
+  var a = p.z / r;
+  a = 2 * a / PI;
+  a = a * a;
+  a = min(a, PI / 4);
+  a = a * PI / 2;
+
+  let angle = a;
+
+  let x: vec3<f32> = vec3(cos(angle), 0, sin(angle));
+  let y: vec3<f32> = vec3(0, 1, 0);
+  let z: vec3<f32> = vec3(-sin(angle), 0, cos(angle));
+
+  let origin = r * x + vec3<f32>(-r, 0, 0);
+
+  let tr: mat4x4<f32> = mat4x4(
+    x[0], x[1], x[2], 0,
+    y[0], y[1], y[2], 0,
+    z[0], z[1], z[2], 0,
+    origin[0], origin[1], origin[2], 1
+  );
+
+  let tmp = tr * vec4(p, 1.0);
+  return tmp.xyz;
+}
+
+fn bend_vertical(point: vec3<f32>) -> vec3<f32> {
+  let tr = mat3x3(
+    0, -1, 0,
+    1,  0, 0,
+    0,  0, 1,
+  );
+  let invTr = mat3x3(
+    0, 1, 0,
+    -1, 0, 0,
+    0, 0, 1,
+  );
+
+  var tmp = tr * point;
+  tmp = bend_horizontal(tmp, 1500);
+  tmp = invTr * tmp;
+
+  return tmp;
+}
+
 @vertex
 fn main(
     @location(0) pos: vec3f,
@@ -71,8 +120,18 @@ fn main(
   var out: VOut;
   out.uv = uv;
 
-  let posTr = transf_point(pos, inst_pos, i1, i2, w1, w2);
-  let posNormEndTr = transf_point(pos + norm, inst_pos + norm, i1, i2, w1, w2);
+  let posTr = bend_vertical(
+    bend_horizontal(
+      transf_point(pos, inst_pos, i1, i2, w1, w2),
+      1000
+    )
+  );
+  let posNormEndTr = bend_vertical(
+    bend_horizontal(
+      transf_point(pos + norm, inst_pos + norm, i1, i2, w1, w2),
+      1000
+    )
+  );
 
   let normal = normalize(posNormEndTr - posTr);
   out.normal = normal;
