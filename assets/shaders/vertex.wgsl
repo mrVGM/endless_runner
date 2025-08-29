@@ -64,6 +64,9 @@ fn bend_horizontal(point: vec3<f32>, r: f32) -> vec3<f32> {
   a = a * a;
   a = min(a, PI / 4);
   a = a * PI / 2;
+  if (p.z < 0) {
+    a = -a;
+  }
 
   let angle = a;
 
