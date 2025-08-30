@@ -741,10 +741,12 @@
 
                 let characterFBX = loadFBX("assets/slow_run.fbx");
                 let railFBX = loadFBX("assets/rail.fbx");
+                let trainFBX = loadFBX("assets/train.fbx");
 
-                await Promise.all([characterFBX, railFBX]);
+                await Promise.all([characterFBX, railFBX, trainFBX]);
                 characterFBX = await characterFBX;
                 railFBX = await railFBX;
+                trainFBX = await trainFBX;
 
                 assetRepo.characterFBX = {
                     src: JSON.stringify(characterFBX),
@@ -768,8 +770,18 @@
                         };
                     }),
                 };
+                assetRepo.trainFBX = {
+                    src: JSON.stringify(trainFBX),
+                    materials: trainFBX.materials.map(x => {
+                        let diffuse = x.properties.filter(p => {
+                            return p.key === "$clr.diffuse";
+                        })[0];
+                        return {
+                            diffuse: diffuse.value
+                        };
+                    }),
+                };
 
-                console.log(characterFBX);
                 function createActor(fbxJSON) {
                     const actor = {
                         fbx: fbxJSON,
@@ -1047,6 +1059,7 @@
 
                 let character = createActor(characterFBX);
                 let rail = createActor(railFBX);
+                let train = createActor(trainFBX);
 
                 {
                     let scale = mat4([
@@ -1058,21 +1071,19 @@
                     rail.appyTransform(scale);
                 }
 
-
-                console.log(character);
-                console.log(rail, railFBX);
-
                 return {
                     character,
-                    rail
+                    rail,
+                    train,
                 };
             }
 // ### end Assets
 
             async function runApp() {
-                const { character, rail } = await loadAssets();
+                const { character, rail, train } = await loadAssets();
                 character.materials = assetRepo.characterFBX.materials;
                 rail.materials = assetRepo.railFBX.materials;
+                train.materials = assetRepo.trainFBX.materials;
 
                 const adapter = await navigator.gpu?.requestAdapter({
                     featureLevel: 'compatibility',
@@ -1476,6 +1487,10 @@
                             [0, 0, 230],
                         ]
                     ),
+                    addActorRenderFunction(
+                        train,
+                        undefined,
+                    ),
                 ]);
 // ### end Render Buffers
 
@@ -1635,11 +1650,20 @@
                             0, 0, 0, 1,
                         ]));
 
+                        train.setTransform(mat4([
+                            1, 0, 0, 0,
+                            0, 1, 0, 0,
+                            0, 0, 1, 200,
+                            0, 0, 0, 1,
+                        ]));
+
                         character.updateInitialTransforms();
                         rail.updateInitialTransforms();
+                        train.updateInitialTransforms();
 
                         character.registerForRendering();
                         rail.registerForRendering();
+                        train.registerForRendering();
                     }
 
                     let syncBufferPr = Promise.all(tickUpdates.map(x => x()));
