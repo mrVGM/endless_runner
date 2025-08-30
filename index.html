@@ -1059,7 +1059,12 @@
 
                 let character = createActor(characterFBX);
                 let rail = createActor(railFBX);
-                let train = createActor(trainFBX);
+
+                let trainPool = [];
+                for (let i = 0; i < 3; ++i) {
+                    let train = createActor(JSON.parse(assetRepo.trainFBX.src));
+                    trainPool.push(train);
+                }
 
                 {
                     let scale = mat4([
@@ -1074,16 +1079,19 @@
                 return {
                     character,
                     rail,
-                    train,
+                    trainPool
                 };
             }
 // ### end Assets
 
             async function runApp() {
-                const { character, rail, train } = await loadAssets();
+                const { character, rail, trainPool } = await loadAssets();
                 character.materials = assetRepo.characterFBX.materials;
                 rail.materials = assetRepo.railFBX.materials;
-                train.materials = assetRepo.trainFBX.materials;
+
+                trainPool.forEach(x => {
+                    x.materials = assetRepo.trainFBX.materials;
+                });
 
                 const adapter = await navigator.gpu?.requestAdapter({
                     featureLevel: 'compatibility',
@@ -1469,7 +1477,7 @@
                     );
                 }
 
-                await Promise.all([
+                let proms = [
                     addActorRenderFunction(
                         character,
                         // undefined,
@@ -1487,11 +1495,10 @@
                             [0, 0, 230],
                         ]
                     ),
-                    addActorRenderFunction(
-                        train,
-                        undefined,
-                    ),
-                ]);
+                ];
+
+                proms = proms.concat(trainPool.map(x => addActorRenderFunction(x, undefined)));
+                await Promise.all(proms);
 // ### end Render Buffers
 
 // ### start Pipeline
@@ -1650,20 +1657,29 @@
                             0, 0, 0, 1,
                         ]));
 
-                        train.setTransform(mat4([
-                            1, 0, 0, 0,
+                        trainPool[0].setTransform(mat4([
+                            1, 0, 0, 150,
                             0, 1, 0, 0,
                             0, 0, 1, 200,
                             0, 0, 0, 1,
                         ]));
 
+                        trainPool[1].setTransform(mat4([
+                            1, 0, 0, -150,
+                            0, 1, 0, 0,
+                            0, 0, 1, 300,
+                            0, 0, 0, 1,
+                        ]));
+
                         character.updateInitialTransforms();
                         rail.updateInitialTransforms();
-                        train.updateInitialTransforms();
+                        trainPool[0].updateInitialTransforms();
+                        trainPool[1].updateInitialTransforms();
 
                         character.registerForRendering();
                         rail.registerForRendering();
-                        train.registerForRendering();
+                        trainPool[0].registerForRendering();
+                        trainPool[1].registerForRendering();
                     }
 
                     let syncBufferPr = Promise.all(tickUpdates.map(x => x()));
