@@ -7,6 +7,7 @@
 
         <script src="source/assimpjs.js"></script>
         <script>
+            caches.delete("sour")
 // ### start Math
             let eps = 0.00000001;
             function* permutations(n) {
@@ -1445,7 +1446,7 @@
                 }
 
                 let railInstances = [];
-                for (let i = 0; i < 100; ++i) {
+                for (let i = 0; i < 10; ++i) {
                     railInstances.push(
                         [0, 0, i * 230]
                     );
@@ -1613,7 +1614,8 @@
                 let fpsMon = document.querySelector("div#dt");
                 let diff = 0;
 
-                let globPos = 0;
+                let globSpeed = 220;
+                let globPosRail = -230;
 // ### start Render Loop
                 while(true) {
                     let startFrame = Date.now();
@@ -1622,11 +1624,14 @@
                     {
                         sampleAnim(diff);
 
-                        globPos -= 100 * diff / 1000.0;
+                        globPosRail -= globSpeed * diff / 1000.0;
+                        while (globPosRail < -460) {
+                            globPosRail += 230;
+                        }
                         rail.setTransform(mat4([
                             0.2, 0, 0, 0,
                             0, 0.2, 0, 0,
-                            0, 0, 0.2, globPos,
+                            0, 0, 0.2, globPosRail,
                             0, 0, 0, 1,
                         ]));
 
