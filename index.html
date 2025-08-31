@@ -1485,12 +1485,7 @@
                 let proms = [
                     addActorRenderFunction(
                         character,
-                        // undefined,
-                        [
-                            [0, 0, 0],
-                            [150, 0, 0],
-                        ]
-
+                        undefined,
                     ),
                     addActorRenderFunction(
                         rail,
@@ -1643,6 +1638,91 @@
 
                 let globSpeed = 220;
                 let globPosRail = -230;
+
+                let crt = [];
+
+                trainPool.forEach(x => {
+                    x.gameplay = {
+                        pos: [0, 0, -1000],
+                    }
+                });
+
+                async function scheduleTrain() {
+                    while (true) {
+                        let train = await new Promise(resolve => {
+                            function* findTrain() {
+                                while (true) {
+                                    let index = -1;
+                                    for (let i = 0; i < trainPool.length; ++i) {
+                                        if (trainPool[i].gameplay.pos[2] <= -1000) {
+                                            index = i;
+                                            break;
+                                        }
+                                    }
+                                    if (index >= 0) {
+                                        resolve(trainPool[index]);
+                                        break;
+                                    }
+                                    yield;
+                                }
+                            }
+                            crt.push(findTrain());
+                        });
+
+                        function* updateTrain(train) {
+                            let curPos = train.gameplay.pos;
+                            let lane = Math.floor(3 * Math.random()) - 1;
+                            curPos[0] = lane * 150;
+                            curPos[1] = 0;
+                            curPos[2] = 1500;
+
+                            train.setTransform(mat4([
+                                1, 0, 0, curPos[0],
+                                0, 1, 0, curPos[1],
+                                0, 0, 1, curPos[2],
+                                0, 0, 0, 1,
+                            ]));
+                            train.updateInitialTransforms();
+                            yield;
+
+                            let speed = Math.random() * 500 + globSpeed;
+
+                            while (true) {
+                                train.setTransform(mat4([
+                                    1, 0, 0, curPos[0],
+                                    0, 1, 0, curPos[1],
+                                    0, 0, 1, curPos[2],
+                                    0, 0, 0, 1,
+                                ]));
+                                train.updateInitialTransforms();
+
+                                if (curPos[2] < -1000) {
+                                    break;
+                                }
+                                train.registerForRendering();
+                                yield;
+                                curPos[2] -= diff * (speed + globSpeed) / 1000.0;
+                            }
+                        }
+                        crt.push(updateTrain(train));
+
+                        await new Promise(resolve => {
+                            function* wait() {
+                                let left = 3000;
+                                while (left >= 0) {
+                                    left -= diff;
+                                    yield;
+                                }
+                                resolve();
+                            }
+                            
+                            crt.push(wait());
+                        });
+                    }
+                }
+
+                scheduleTrain();
+
 // ### start Render Loop
                 while(true) {
                     let startFrame = Date.now();
@@ -1662,29 +1742,20 @@
                             0, 0, 0, 1,
                         ]));
 
-                        trainPool[0].setTransform(mat4([
-                            1, 0, 0, 150,
-                            0, 1, 0, 0,
-                            0, 0, 1, 200,
-                            0, 0, 0, 1,
-                        ]));
-
-                        trainPool[1].setTransform(mat4([
-                            1, 0, 0, -150,
-                            0, 1, 0, 0,
-                            0, 0, 1, 300,
-                            0, 0, 0, 1,
-                        ]));
-
                         character.updateInitialTransforms();
                         rail.updateInitialTransforms();
-                        trainPool[0].updateInitialTransforms();
-                        trainPool[1].updateInitialTransforms();
 
                         character.registerForRendering();
                         rail.registerForRendering();
-                        trainPool[0].registerForRendering();
-                        trainPool[1].registerForRendering();
+
+                        let tmp = crt;
+                        crt = [];
+                        tmp.forEach(x => {
+                            let res = x.next();
+                            if (!res.done) {
+                                crt.push(x);
+                            }
+                        });
                     }
 
                     let syncBufferPr = Promise.all(tickUpdates.map(x => x()));
