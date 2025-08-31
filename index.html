@@ -7,7 +7,12 @@
 
         <script src="source/assimpjs.js"></script>
         <script>
-            caches.delete("sour")
+
+            createFetchAddr = (addr) => {
+                let now = (new Date()).getTime();
+                return `${addr}?v=${now}`;
+            }
+
 // ### start Math
             let eps = 0.00000001;
             function* permutations(n) {
@@ -711,7 +716,7 @@
                 const ajs = await assimpjs();
                 const fbxName = file;
 
-                const fbx = await fetch(fbxName);
+                const fbx = await fetch(createFetchAddr(fbxName));
                 const buff = await fbx.arrayBuffer();
 
                 const fileList = new ajs.FileList();
@@ -1111,8 +1116,8 @@
 
                 console.log(context);
 
-                let vertexShader = fetch("assets/shaders/vertex.wgsl");
-                let fragmentShader = fetch("assets/shaders/fragment.wgsl")
+                let vertexShader = fetch(createFetchAddr("assets/shaders/vertex.wgsl"));
+                let fragmentShader = fetch(createFetchAddr("assets/shaders/fragment.wgsl"))
                 await Promise.all([vertexShader, fragmentShader]);
                 vertexShader = await (await vertexShader).text();
                 fragmentShader = await (await fragmentShader).text();
