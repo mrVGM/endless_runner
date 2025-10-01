@@ -2,11 +2,30 @@
 <html>
     <head></head>
     <body>
-        <canvas width="320" height="240"></canvas>
         <div id="dt"></div>
+        <canvas width="320" height="240"></canvas>
+        <div style="display: flex;">
+            <button id="left"><</button>
+            <button id="right">></button>
+        </div>
 
         <script src="source/assimpjs.js"></script>
         <script>
+            let charTargetPos = 0;
+
+            let leftButton = document.getElementById("left");
+            let rightButton = document.getElementById("right");
+
+            leftButton.addEventListener("click", () => {
+                charTargetPos -= 150;
+                charTargetPos =
+                    Math.max(charTargetPos, -150);
+            });
+            rightButton.addEventListener("click", () => {
+                charTargetPos += 150;
+                charTargetPos =
+                    Math.min(charTargetPos, 150);
+            });
 
             createFetchAddr = (addr) => {
                 let now = (new Date()).getTime();
@@ -1723,6 +1742,8 @@
 
                 scheduleTrain();
 
+                let charCurPos = 0;
+
 // ### start Render Loop
                 while(true) {
                     let startFrame = Date.now();
@@ -1739,6 +1760,31 @@
                             0.2, 0, 0, 0,
                             0, 0.2, 0, 0,
                             0, 0, 0.2, globPosRail,
+                            0, 0, 0, 1,
+                        ]));
+
+                        {
+                            let dt = diff / 1000;
+                            let dampFactor = 0.1;
+                            let t = Math.min(dt / dampFactor, 1);
+                            charCurPos = (1 - t) * charCurPos + t * charTargetPos;
+                        }
+
+                        {
+                            let camTargetPos = charCurPos;
+                            camTargetPos = Math.min(camTargetPos, 100);
+                            camTargetPos = Math.max(camTargetPos, -100);
+
+                            let dt = diff / 1000;
+                            let dampFactor = 0.1;
+                            let t = Math.min(dt / dampFactor, 1);
+                            camera.pos[0] = (1 - t) * camera.pos[0] + t * camTargetPos;
+                        }
+
+                        character.setTransform(mat4([
+                            1, 0, 0, charCurPos,
+                            0, 1, 0, 0,
+                            0, 0, 1, 0,
                             0, 0, 0, 1,
                         ]));
 
